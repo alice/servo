@@ -86,6 +86,7 @@ use url::Url;
 use webrender_api::ExternalScrollId;
 use webrender_api::units::{DevicePixel, LayoutVector2D};
 
+use crate::accessibility_tree::AccessibilityTree;
 use crate::context::{CachedImageOrError, ImageResolver, LayoutContext};
 use crate::display_list::{
     DisplayListBuilder, HitTest, LargestContentfulPaintCandidateCollector, StackingContextTree,
@@ -181,6 +182,9 @@ pub struct LayoutThread {
 
     /// The fragment tree.
     fragment_tree: RefCell<Option<Rc<FragmentTree>>>,
+
+    /// The accessibility tree
+    accessibility_tree: RefCell<Option<AccessibilityTree>>,
 
     /// The [`StackingContextTree`] cached from previous layouts.
     stacking_context_tree: RefCell<Option<StackingContextTree>>,
@@ -700,6 +704,17 @@ impl Layout for LayoutThread {
 
         Ok(())
     }
+
+    fn set_accessibility_enabled(&self, enabled: bool) {
+        if !enabled {
+            self.accessibility_tree.replace(None);
+            return;
+        }
+        if self.accessibility_tree.borrow().is_some() {
+            return;
+        }
+        *self.accessibility_tree.borrow_mut() = Some(Default::default())
+    }
 }
 
 impl LayoutThread {
@@ -747,6 +762,7 @@ impl LayoutThread {
             need_new_stacking_context_tree: Cell::new(false),
             box_tree: Default::default(),
             fragment_tree: Default::default(),
+            accessibility_tree: Default::default(),
             stacking_context_tree: Default::default(),
             paint_api: config.paint_api,
             stylist: Stylist::new(device, QuirksMode::NoQuirks),

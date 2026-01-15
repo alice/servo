@@ -1550,6 +1550,9 @@ where
             ) => {
                 self.handle_user_content_manager_action(user_content_manager_id, action);
             },
+            EmbedderToConstellationMessage::SetAccessibilityEnabled(webview_id, enabled) => {
+                self.set_accessibility_enabled(webview_id, enabled);
+            },
         }
     }
 
@@ -2979,6 +2982,16 @@ where
             KeyState::Down => self.active_keyboard_modifiers.insert(modified_modifier),
             KeyState::Up => self.active_keyboard_modifiers.remove(modified_modifier),
         }
+    }
+
+    fn set_accessibility_enabled(&mut self, webview_id: WebViewId, enabled: bool) {
+        let Some(webview) = self.webviews.get_mut(&webview_id) else {
+            warn!(
+                "Got request to enable/disable accessibility for unknown WebViewId: {webview_id:?}"
+            );
+            return;
+        };
+        webview.set_accessibility_enabled(enabled, &self.pipelines, &self.browsing_contexts);
     }
 
     fn forward_input_event(

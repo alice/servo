@@ -307,6 +307,8 @@ pub enum ScriptThreadMessage {
     DestroyUserContentManager(UserContentManagerId),
     /// Send the embedder an accessibility tree update.
     AccessibilityTreeUpdate(WebViewId, accesskit::TreeUpdate),
+    /// Enable or disable accessibility updates.
+    SetAccessibilityEnabled(WebViewId, PipelineId, bool),
 }
 
 impl fmt::Debug for ScriptThreadMessage {

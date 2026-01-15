@@ -742,6 +742,12 @@ impl WebView {
         self.delegate()
             .show_embedder_control(self.clone(), embedder_control);
     }
+
+    pub fn set_accessibility_enabled(&self, enabled: bool) {
+        self.inner().servo.constellation_proxy().send(
+            EmbedderToConstellationMessage::SetAccessibilityEnabled(self.id(), enabled),
+        );
+    }
 }
 
 /// A structure used to expose a view of the [`WebView`] to the Servo

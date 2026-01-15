@@ -362,6 +362,8 @@ pub trait Layout {
         &mut self,
         property_registration: PropertyRegistration,
     ) -> Result<(), RegisterPropertyError>;
+
+    fn set_accessibility_enabled(&self, enabled: bool);
 }
 
 /// This trait is part of `layout_api` because it depends on both `script_traits`

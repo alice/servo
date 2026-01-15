@@ -171,4 +171,35 @@ impl ConstellationWebView {
             ));
         true
     }
+
+    pub(crate) fn set_accessibility_enabled(
+        &mut self,
+        enabled: bool,
+        pipelines: &FxHashMap<PipelineId, Pipeline>,
+        browsing_contexts: &FxHashMap<BrowsingContextId, BrowsingContext>,
+    ) {
+        let Some(browsing_context) = browsing_contexts.get(&self.focused_browsing_context_id)
+        else {
+            warn!(
+                "Couldn't get focused browsing context  when enabling/disabling accessibility . Ignoring."
+            );
+            return;
+        };
+        let Some(pipeline) = pipelines.get(&browsing_context.pipeline_id) else {
+            warn!(
+                "Unknown pipeline id for focused browsing context when enabling/disabling accessibility. Ignoring."
+            );
+            return;
+        };
+
+        let _ = pipeline
+            .event_loop
+            .send(ScriptThreadMessage::SetAccessibilityEnabled(
+                self.webview_id,
+                pipeline.id,
+                enabled,
+            ));
+
+        // TODO: Send a message (where?) to enable accessibility
+    }
 }
