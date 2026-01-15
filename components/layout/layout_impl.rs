@@ -84,6 +84,7 @@ use url::Url;
 use webrender_api::ExternalScrollId;
 use webrender_api::units::{DevicePixel, LayoutVector2D};
 
+use crate::accessibility_tree::AccessibilityTree;
 use crate::context::{CachedImageOrError, ImageResolver, LayoutContext};
 use crate::display_list::{DisplayListBuilder, HitTest, PaintTimingHandler, StackingContextTree};
 use crate::query::{
@@ -208,6 +209,11 @@ pub struct LayoutThread {
 
     /// Handler for all Paint Timings
     paint_timing_handler: RefCell<Option<PaintTimingHandler>>,
+
+    /// The accessibility tree
+    accessibility_tree: RefCell<Option<AccessibilityTree>>,
+
+    needs_accessibility_update: Cell<bool>,
 }
 
 pub struct LayoutFactoryImpl();
@@ -710,7 +716,30 @@ impl Layout for LayoutThread {
         Ok(())
     }
 
-    fn set_accessibility_active(&self, _active: bool) {}
+    fn set_accessibility_active(&self, enabled: bool) {
+        if !enabled {
+            self.accessibility_tree.replace(None);
+            return;
+        }
+        if self.accessibility_tree.borrow().is_some() {
+            return;
+        }
+        // TODO: Derive UUID in a standard way.
+        let uuid = accesskit::Uuid::from_u64_pair(
+            self.id.namespace_id.0.into(),
+            self.id.index.0.get().into(),
+        );
+        let tree_id = accesskit::TreeId(uuid);
+        *self.accessibility_tree.borrow_mut() = Some(AccessibilityTree::new(tree_id));
+    }
+
+    fn needs_accessibility_update(&self) -> bool {
+        self.needs_accessibility_update.get()
+    }
+
+    fn set_needs_accessibility_update(&self) {
+        self.needs_accessibility_update.set(true);
+    }
 }
 
 impl LayoutThread {
@@ -758,6 +787,7 @@ impl LayoutThread {
             need_new_stacking_context_tree: Cell::new(false),
             box_tree: Default::default(),
             fragment_tree: Default::default(),
+            accessibility_tree: Default::default(),
             stacking_context_tree: Default::default(),
             paint_api: config.paint_api,
             stylist: Stylist::new(device, QuirksMode::NoQuirks),
@@ -766,6 +796,7 @@ impl LayoutThread {
             previously_highlighted_dom_node: Cell::new(None),
             paint_timing_handler: Default::default(),
             user_stylesheets: config.user_stylesheets,
+            needs_accessibility_update: Cell::new(false),
         }
     }
 
@@ -883,6 +914,30 @@ impl LayoutThread {
         }
     }
 
+    fn handle_accessibility_tree_update(&self, root_element: &ServoLayoutNode) -> bool {
+        let mut accessibility_tree = self.accessibility_tree.borrow_mut();
+        let Some(accessibility_tree) = accessibility_tree.as_mut() else {
+            return false;
+        };
+        let stacking_context_tree = self.stacking_context_tree.borrow();
+        let Some(stacking_context_tree) = stacking_context_tree.as_ref() else {
+            return false;
+        };
+        let accessibility_tree = &mut *accessibility_tree;
+        if let Some(tree_update) = accessibility_tree.update_tree(root_element.to_threadsafe(), stacking_context_tree) {
+            // FIXME: Handle send error. Could have a method on accessibility tree to
+            // finalise after sending, removing accessibility damage? On fail, retain damage
+            // for next reflow, as well as retaining document.needs_accessibility_update.
+            let _ = self
+                .script_chan
+                .send(ScriptThreadMessage::AccessibilityTreeUpdate(
+                    self.webview_id,
+                    tree_update,
+                ));
+        }
+        true
+    }
+
     /// The high-level routine that performs layout.
     #[servo_tracing::instrument(skip_all)]
     fn handle_reflow(&mut self, mut reflow_request: ReflowRequest) -> Option<ReflowResult> {
@@ -933,6 +988,11 @@ impl LayoutThread {
         }
         if self.handle_update_scroll_node_request(&reflow_request) {
             reflow_phases_run.insert(ReflowPhasesRun::UpdatedScrollNodeOffset);
+        }
+        if self.accessibility_tree.borrow().is_some() &&
+            self.handle_accessibility_tree_update(&root_element.as_node())
+        {
+            reflow_phases_run.insert(ReflowPhasesRun::UpdatedAccessibilityTree);
         }
 
         let pending_images = std::mem::take(&mut *image_resolver.pending_images.lock());

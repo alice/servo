@@ -59,6 +59,7 @@ where
         let mut element_data = element.mutate_data().unwrap();
 
         if !had_style_data {
+            // *** TODO: accessibility damage should work analogously
             element_data.damage = RestyleDamage::reconstruct();
         }
 
@@ -115,6 +116,7 @@ pub(crate) fn compute_damage_and_repair_style_inner(
     let (element_damage, is_display_none) = {
         let mut element_data = element_data.borrow_mut();
         (
+            // ** Note we can get styles like this
             std::mem::take(&mut element_data.damage),
             element_data.styles.is_display_none(),
         )

@@ -1515,6 +1515,7 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 name = "constellation"
 version = "0.0.1"
 dependencies = [
+ "accesskit",
  "background_hang_monitor",
  "background_hang_monitor_api",
  "backtrace",
@@ -1563,6 +1564,7 @@ dependencies = [
 name = "constellation_traits"
 version = "0.0.1"
 dependencies = [
+ "accesskit",
  "base",
  "canvas_traits",
  "content-security-policy",
@@ -5043,6 +5045,7 @@ dependencies = [
  "script",
  "script_traits",
  "selectors",
+ "serde",
  "servo-tracing",
  "servo_arc",
  "servo_config",
