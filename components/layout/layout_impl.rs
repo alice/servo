@@ -211,6 +211,8 @@ pub struct LayoutThread {
 
     /// The collector for calculating Largest Contentful Paint
     lcp_candidate_collector: RefCell<Option<LargestContentfulPaintCandidateCollector>>,
+
+    needs_accessibility_update: Cell<bool>,
 }
 
 pub struct LayoutFactoryImpl();
@@ -715,6 +717,14 @@ impl Layout for LayoutThread {
         }
         *self.accessibility_tree.borrow_mut() = Some(Default::default())
     }
+
+    fn needs_accessibility_update(&self) -> bool {
+        self.needs_accessibility_update.get()
+    }
+
+    fn set_needs_accessibility_update(&self) {
+        self.needs_accessibility_update.set(true);
+    }
 }
 
 impl LayoutThread {
@@ -770,6 +780,7 @@ impl LayoutThread {
             debug: opts::get().debug.clone(),
             previously_highlighted_dom_node: Cell::new(None),
             lcp_candidate_collector: Default::default(),
+            needs_accessibility_update: Cell::new(false),
         }
     }
 
@@ -887,6 +898,14 @@ impl LayoutThread {
         }
     }
 
+    fn handle_accessibility_tree_update(&self, root_element: &ServoLayoutNode) -> bool {
+        let Some(accessibility_tree) = &*self.accessibility_tree.borrow_mut() else {
+            return false;
+        };
+        accessibility_tree.update_tree(root_element.to_threadsafe());
+        true
+    }
+
     /// The high-level routine that performs layout.
     #[servo_tracing::instrument(skip_all)]
     fn handle_reflow(&mut self, mut reflow_request: ReflowRequest) -> Option<ReflowResult> {
@@ -937,6 +956,11 @@ impl LayoutThread {
         }
         if self.handle_update_scroll_node_request(&reflow_request) {
             reflow_phases_run.insert(ReflowPhasesRun::UpdatedScrollNodeOffset);
+        }
+        if self.accessibility_tree.borrow().is_some() &&
+            self.handle_accessibility_tree_update(&root_element.as_node())
+        {
+            reflow_phases_run.insert(ReflowPhasesRun::UpdatedAccessibilityTree);
         }
 
         let pending_images = std::mem::take(&mut *image_resolver.pending_images.lock());

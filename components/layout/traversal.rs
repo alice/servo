@@ -61,6 +61,7 @@ where
         let mut element_data = element.mutate_data().unwrap();
 
         if !had_style_data {
+            // *** TODO: accessibility damage should work analogously
             element_data.damage = RestyleDamage::reconstruct();
         }
 
