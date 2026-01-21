@@ -123,6 +123,7 @@ pub(crate) fn compute_damage_and_repair_style_inner(
         original_element_damage = element_data.damage;
         element_damage = original_element_damage | damage_from_parent;
 
+        // ** Note we can get styles like this
         if let Some(ref style) = element_data.styles.primary {
             if style.get_box().display == Display::None {
                 element_data.damage = element_damage;

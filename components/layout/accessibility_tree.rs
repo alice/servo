@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use accesskit::Role;
 use layout_api::wrapper_traits::ThreadSafeLayoutNode;
 use rustc_hash::FxHashMap;
 use script::layout_dom::ServoThreadSafeLayoutNode;
@@ -10,7 +11,7 @@ use style::dom::OpaqueNode;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct AccessibilityTree {
-    nodes: FxHashMap<OpaqueNode, AccessibilityNode>,
+    nodes: FxHashMap<accesskit::NodeId, AccessibilityNode>,
     accesskit_tree: accesskit::Tree,
 }
 
@@ -55,25 +56,24 @@ impl AccessibilityUpdate {
 
 impl AccessibilityTree {
     pub(super) fn update_tree(
-        &self,
+        &mut self,
         root_node: ServoThreadSafeLayoutNode<'_>,
-    ) -> accesskit::TreeUpdate {
+    ) -> Option<accesskit::TreeUpdate> {
         let mut tree_update: AccessibilityUpdate = Default::default();
         self.update_node(root_node, &mut tree_update);
 
-        tree_update.accesskit_update
+        Some(tree_update.accesskit_update)
     }
 
     fn update_node(
-        &self,
+        &mut self,
         dom_node: ServoThreadSafeLayoutNode<'_>,
         tree_update: &mut AccessibilityUpdate,
     ) {
-        let Some(accessibility_node) = self.nodes.get(&dom_node.opaque()) else {
-            // FIXME: if we're passing in a DOM node, we should create the accessibility node if it doesn't exist!
+        let Some(accessibility_node) = self.get_or_create_node(dom_node) else {
             return;
         };
-        // FIXME: this is silly since we may need to also add children
+        // FIXME: this is silly since we may need to also add children.
         // pass tree_update or tree_updates.nodes into update method?
         if accessibility_node.update(dom_node) {
             tree_update.add(accessibility_node);
@@ -81,11 +81,84 @@ impl AccessibilityTree {
 
         // TODO: read accessibility damage from dom_node (right now, assume damage is complete)
     }
+
+    fn get_or_create_node(
+        &mut self,
+        dom_node: ServoThreadSafeLayoutNode<'_>,
+    ) -> Option<&AccessibilityNode> {
+        let id = Self::to_accesskit_id(&dom_node.opaque());
+        if self.nodes.contains_key(&id) {
+            return self.nodes.get(&id);
+        };
+
+        let node = AccessibilityNode::new(id);
+        self.nodes.insert(id, node);
+        self.nodes.get(&id)
+    }
+
+    fn to_accesskit_id(opaque: &OpaqueNode) -> accesskit::NodeId {
+        accesskit::NodeId(opaque.0 as u64)
+    }
 }
 
 impl AccessibilityNode {
+    fn new(id: accesskit::NodeId) -> Self {
+        Self {
+            id: id,
+            accesskit_node: accesskit::Node::new(Role::Unknown),
+        }
+    }
+
     fn update(&self, _dom_node: ServoThreadSafeLayoutNode<'_>) -> bool {
         true
+    }
+}
+
+trait TraversalHandler<'dom> {
+    fn handle_text(&mut self, text: &ServoThreadSafeLayoutNode<'_>, text: Cow<'dom, str>);
+
+    /// Or pseudo-element
+    fn handle_element(
+        &mut self,
+        element: &ServoThreadSafeLayoutNode<'_>
+    );
+
+    /// Notify the handler that we are about to recurse into a `display: contents` element.
+    // fn enter_display_contents(&mut self, _: SharedInlineStyles) {}
+
+    /// Notify the handler that we have finished a `display: contents` element.
+    // fn leave_display_contents(&mut self) {}
+}
+
+fn  traverse_children_of<'dom>(
+    dom_node: ServoThreadSafeLayoutNode<'_>,
+    handler: &mut impl TraversalHandler<'dom>,
+) {
+        let element_data = &node
+        .style_data()
+        .expect("Accessibility tree update must come after styling.")
+        .element_data;
+    // parent_element_info
+    //     .node
+    //     .set_uses_content_attribute_with_attr(false);
+
+    let is_element = node.pseudo_element_chain().is_empty();
+    if is_element {
+        // TODO: implement
+        // traverse_eager_pseudo_element(PseudoElement::Before, parent_element_info, context, handler);
+    }
+
+    for child in dom_node.children() {
+        if child.is_text_node() {
+            handler.handle_text(&node, child.text_content());
+        } else if child.is_element() {
+            // TODO: implement
+            // traverse_element(child, context, handler);
+        }
+    }
+
+    if is_element {
+        // traverse_eager_pseudo_element(PseudoElement::After, parent_element_info, context, handler);
     }
 }
 

@@ -715,6 +715,7 @@ impl Layout for LayoutThread {
         if self.accessibility_tree.borrow().is_some() {
             return;
         }
+        // TODO: set accessibility tree ID based on webview id?
         *self.accessibility_tree.borrow_mut() = Some(Default::default())
     }
 
@@ -899,10 +900,22 @@ impl LayoutThread {
     }
 
     fn handle_accessibility_tree_update(&self, root_element: &ServoLayoutNode) -> bool {
-        let Some(accessibility_tree) = &*self.accessibility_tree.borrow_mut() else {
+        let mut accessibility_tree = self.accessibility_tree.borrow_mut();
+        let Some(accessibility_tree) = accessibility_tree.as_mut() else {
             return false;
         };
-        accessibility_tree.update_tree(root_element.to_threadsafe());
+        let accessibility_tree = &mut *accessibility_tree;
+        if let Some(tree_update) = accessibility_tree.update_tree(root_element.to_threadsafe()) {
+            // FIXME: Handle send error. Could have a method on accessibility tree to
+            // finalise after sending, removing accessibility damage? On fail, retain damage
+            // for next reflow, as well as retaining document.needs_accessibility_update.
+            let _ = self
+                .script_chan
+                .send(ScriptThreadMessage::AccessibilityTreeUpdate(
+                    self.webview_id,
+                    tree_update,
+                ));
+        }
         true
     }
 
