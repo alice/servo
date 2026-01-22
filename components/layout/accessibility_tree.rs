@@ -2,23 +2,27 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use std::sync::LazyLock;
+
 use accesskit::Role;
-use layout_api::wrapper_traits::ThreadSafeLayoutNode;
+use html5ever::{LocalName, local_name};
+use layout_api::wrapper_traits::{ThreadSafeLayoutElement, ThreadSafeLayoutNode};
+use log::trace;
 use rustc_hash::FxHashMap;
 use script::layout_dom::ServoThreadSafeLayoutNode;
-use serde::{Deserialize, Serialize};
-use style::dom::OpaqueNode;
+use style::dom::{NodeInfo, OpaqueNode};
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Debug)]
 pub struct AccessibilityTree {
     nodes: FxHashMap<accesskit::NodeId, AccessibilityNode>,
     accesskit_tree: accesskit::Tree,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Debug)]
 struct AccessibilityNode {
     id: accesskit::NodeId,
     accesskit_node: accesskit::Node,
+    parent: Option<accesskit::NodeId>,
 }
 
 struct AccessibilityUpdate {
@@ -26,6 +30,7 @@ struct AccessibilityUpdate {
 }
 
 impl Default for AccessibilityTree {
+    // TODO: should be new() which takes the root DOM node and sets the accesskit tree root node ID based on that
     fn default() -> Self {
         Self {
             nodes: Default::default(),
@@ -34,12 +39,12 @@ impl Default for AccessibilityTree {
     }
 }
 
-impl Default for AccessibilityUpdate {
-    fn default() -> Self {
+impl AccessibilityUpdate {
+    fn new(tree: accesskit::Tree) -> Self {
         Self {
             accesskit_update: accesskit::TreeUpdate {
                 nodes: Default::default(),
-                tree: None,
+                tree: Some(tree),
                 focus: accesskit::NodeId(1),
             },
         }
@@ -59,7 +64,7 @@ impl AccessibilityTree {
         &mut self,
         root_node: ServoThreadSafeLayoutNode<'_>,
     ) -> Option<accesskit::TreeUpdate> {
-        let mut tree_update: AccessibilityUpdate = Default::default();
+        let mut tree_update = AccessibilityUpdate::new(self.accesskit_tree.clone());
         self.update_node(root_node, &mut tree_update);
 
         Some(tree_update.accesskit_update)
@@ -70,30 +75,67 @@ impl AccessibilityTree {
         dom_node: ServoThreadSafeLayoutNode<'_>,
         tree_update: &mut AccessibilityUpdate,
     ) {
-        let Some(accessibility_node) = self.get_or_create_node(dom_node) else {
-            return;
-        };
-        // FIXME: this is silly since we may need to also add children.
-        // pass tree_update or tree_updates.nodes into update method?
-        if accessibility_node.update(dom_node) {
-            tree_update.add(accessibility_node);
-        }
+        // TODO: actually compute whether updated or not :)
+        let updated = true;
 
         // TODO: read accessibility damage from dom_node (right now, assume damage is complete)
+
+        let mut new_children: Vec<accesskit::NodeId> = vec![];
+        for dom_child in dom_node.children() {
+            let child_node = self.get_or_create_node(dom_child);
+            // FIXME: don't want to call get_or_create twice!
+            new_children.push(child_node.id);
+            self.update_node(dom_child, tree_update);
+        }
+
+        let accessibility_node = self.get_or_create_node(dom_node);
+
+        // TODO: initialise/update properties here rather than in get_or_create_node
+
+        // TODO: compare new_children to existing children
+        accessibility_node.accesskit_node.set_children(new_children);
+
+        if updated {
+            tree_update.add(accessibility_node);
+        }
     }
 
     fn get_or_create_node(
         &mut self,
         dom_node: ServoThreadSafeLayoutNode<'_>,
-    ) -> Option<&AccessibilityNode> {
+    ) -> &mut AccessibilityNode {
         let id = Self::to_accesskit_id(&dom_node.opaque());
-        if self.nodes.contains_key(&id) {
-            return self.nodes.get(&id);
-        };
 
-        let node = AccessibilityNode::new(id);
-        self.nodes.insert(id, node);
-        self.nodes.get(&id)
+        let node = self
+            .nodes
+            .entry(id)
+            .or_insert_with(|| AccessibilityNode::new(id));
+
+        let accesskit_node = &mut node.accesskit_node;
+
+        // TODO: Move these branches into separate methods and call from update_node
+        if dom_node.is_text_node() {
+            accesskit_node.set_role(Role::TextRun);
+            let text_content = dom_node.text_content();
+            trace!("node text content = {:?}", text_content);
+            accesskit_node.set_value(&*text_content);
+            // FIXME: this should take into account editing selection units (grapheme clusters?)
+            accesskit_node.set_character_lengths(
+                text_content
+                    .chars()
+                    .map(|c| c.len_utf8() as u8)
+                    .collect::<Box<[u8]>>(),
+            );
+        } else if let Some(dom_element) = dom_node.as_element() {
+            let accesskit_node = &mut node.accesskit_node;
+            if dom_element.is_html_element() {
+                if let Some(role) = HTML_ELEMENT_ROLE_MAPPINGS.get(dom_element.get_local_name()) {
+                    accesskit_node.set_role(*role);
+                }
+            }
+        }
+
+        node
     }
 
     fn to_accesskit_id(opaque: &OpaqueNode) -> accesskit::NodeId {
@@ -104,63 +146,102 @@ impl AccessibilityTree {
 impl AccessibilityNode {
     fn new(id: accesskit::NodeId) -> Self {
         Self {
-            id: id,
+            id,
             accesskit_node: accesskit::Node::new(Role::Unknown),
+            parent: None,
         }
     }
-
-    fn update(&self, _dom_node: ServoThreadSafeLayoutNode<'_>) -> bool {
-        true
-    }
 }
 
-trait TraversalHandler<'dom> {
-    fn handle_text(&mut self, text: &ServoThreadSafeLayoutNode<'_>, text: Cow<'dom, str>);
-
-    /// Or pseudo-element
-    fn handle_element(
-        &mut self,
-        element: &ServoThreadSafeLayoutNode<'_>
-    );
-
-    /// Notify the handler that we are about to recurse into a `display: contents` element.
-    // fn enter_display_contents(&mut self, _: SharedInlineStyles) {}
-
-    /// Notify the handler that we have finished a `display: contents` element.
-    // fn leave_display_contents(&mut self) {}
-}
-
-fn  traverse_children_of<'dom>(
-    dom_node: ServoThreadSafeLayoutNode<'_>,
-    handler: &mut impl TraversalHandler<'dom>,
-) {
-        let element_data = &node
-        .style_data()
-        .expect("Accessibility tree update must come after styling.")
-        .element_data;
-    // parent_element_info
-    //     .node
-    //     .set_uses_content_attribute_with_attr(false);
-
-    let is_element = node.pseudo_element_chain().is_empty();
-    if is_element {
-        // TODO: implement
-        // traverse_eager_pseudo_element(PseudoElement::Before, parent_element_info, context, handler);
-    }
-
-    for child in dom_node.children() {
-        if child.is_text_node() {
-            handler.handle_text(&node, child.text_content());
-        } else if child.is_element() {
-            // TODO: implement
-            // traverse_element(child, context, handler);
-        }
-    }
-
-    if is_element {
-        // traverse_eager_pseudo_element(PseudoElement::After, parent_element_info, context, handler);
-    }
-}
+/// <https://www.w3.org/TR/html-aam-1.0/#html-element-role-mappings>
+///
+/// FIXME: converted mechanically for now, so this will have many errors
+static HTML_ELEMENT_ROLE_MAPPINGS: LazyLock<FxHashMap<LocalName, Role>> = LazyLock::new(|| {
+    [
+        (local_name!("a"), Role::Link),
+        (local_name!("address"), Role::Group),
+        (local_name!("area"), Role::Link),
+        (local_name!("area"), Role::GenericContainer),
+        (local_name!("article"), Role::Article),
+        (local_name!("aside"), Role::Complementary),
+        (local_name!("b"), Role::GenericContainer),
+        (local_name!("bdi"), Role::GenericContainer),
+        (local_name!("bdo"), Role::GenericContainer),
+        (local_name!("blockquote"), Role::Blockquote),
+        (local_name!("body"), Role::GenericContainer),
+        (local_name!("button"), Role::Button),
+        (local_name!("caption"), Role::Caption),
+        (local_name!("code"), Role::Code),
+        (local_name!("data"), Role::GenericContainer),
+        (local_name!("datalist"), Role::ListBox),
+        (local_name!("dd"), Role::Definition),
+        (local_name!("del"), Role::ContentDeletion),
+        (local_name!("details"), Role::Group),
+        (local_name!("dfn"), Role::Term),
+        (local_name!("dialog"), Role::Dialog),
+        (local_name!("dir"), Role::List),
+        (local_name!("div"), Role::GenericContainer),
+        (local_name!("dl"), Role::List),
+        (local_name!("dt"), Role::Term),
+        (local_name!("em"), Role::Emphasis),
+        (local_name!("fieldset"), Role::Group),
+        (local_name!("figcaption"), Role::Caption),
+        (local_name!("figure"), Role::Figure),
+        (local_name!("footer"), Role::ContentInfo),
+        (local_name!("form"), Role::Form),
+        (local_name!("h1"), Role::Heading),
+        (local_name!("h2"), Role::Heading),
+        (local_name!("h3"), Role::Heading),
+        (local_name!("h4"), Role::Heading),
+        (local_name!("h5"), Role::Heading),
+        (local_name!("h6"), Role::Heading),
+        (local_name!("header"), Role::Banner),
+        (local_name!("hgroup"), Role::Group),
+        (local_name!("hr"), Role::Splitter),
+        (local_name!("html"), Role::GenericContainer),
+        (local_name!("i"), Role::GenericContainer),
+        (local_name!("img"), Role::Image),
+        (local_name!("ins"), Role::ContentInsertion),
+        (local_name!("li"), Role::ListItem),
+        (local_name!("main"), Role::Main),
+        (local_name!("mark"), Role::Mark),
+        (local_name!("menu"), Role::List),
+        (local_name!("meter"), Role::Meter),
+        (local_name!("nav"), Role::Navigation),
+        (local_name!("ol"), Role::List),
+        (local_name!("optgroup"), Role::Group),
+        (local_name!("option"), Role::ListBoxOption),
+        (local_name!("output"), Role::Status),
+        (local_name!("p"), Role::Paragraph),
+        (local_name!("pre"), Role::GenericContainer),
+        (local_name!("progress"), Role::ProgressIndicator),
+        (local_name!("q"), Role::GenericContainer),
+        (local_name!("s"), Role::ContentDeletion),
+        (local_name!("samp"), Role::GenericContainer),
+        (local_name!("search"), Role::Search),
+        (local_name!("section"), Role::Region),
+        (local_name!("select"), Role::ListBox),
+        (local_name!("select"), Role::ComboBox),
+        (local_name!("small"), Role::GenericContainer),
+        (local_name!("span"), Role::GenericContainer),
+        (local_name!("strong"), Role::Strong),
+        (local_name!("table"), Role::Table),
+        (local_name!("tbody"), Role::RowGroup),
+        (local_name!("td"), Role::Cell),
+        (local_name!("textarea"), Role::TextInput),
+        (local_name!("tfoot"), Role::RowGroup),
+        (local_name!("th"), Role::Cell),
+        (local_name!("th"), Role::ColumnHeader),
+        (local_name!("th"), Role::RowHeader),
+        (local_name!("thead"), Role::RowGroup),
+        (local_name!("time"), Role::Time),
+        (local_name!("tr"), Role::Row),
+        (local_name!("u"), Role::GenericContainer),
+        (local_name!("ul"), Role::List),
+    ]
+    .into_iter()
+    .collect()
+});
 
 /*
 Accessibility damage: needs to be in LayoutDamage since RestyleDamage is already fully subscribed
