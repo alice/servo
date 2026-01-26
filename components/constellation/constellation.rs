@@ -510,6 +510,9 @@ pub struct Constellation<STF, SWF> {
     /// to the `UserContents` need to be forwared to all the `ScriptThread`s that host
     /// the relevant `WebView`.
     pub(crate) user_contents_for_manager_id: FxHashMap<UserContentManagerId, UserContents>,
+
+    /// Whether accessibility is enabled.
+    accessibility_enabled: bool,
 }
 
 /// State needed to construct a constellation.
@@ -728,6 +731,7 @@ where
                     pending_viewport_changes: Default::default(),
                     screenshot_readiness_requests: Vec::new(),
                     user_contents_for_manager_id: Default::default(),
+                    accessibility_enabled: false,
                 };
 
                 constellation.run();
@@ -1189,6 +1193,18 @@ where
         self.browsing_contexts
             .insert(browsing_context_id, browsing_context);
 
+        if self.accessibility_enabled &&
+            let Some(pipeline) = self.pipelines.get(&pipeline_id)
+        {
+            let _ = pipeline
+                .event_loop
+                .send(ScriptThreadMessage::SetAccessibilityEnabled(
+                    webview_id,
+                    pipeline.id,
+                    true,
+                ));
+        }
+
         // If this context is a nested container, attach it to parent pipeline.
         if let Some(parent_pipeline_id) = parent_pipeline_id {
             if let Some(parent) = self.pipelines.get_mut(&parent_pipeline_id) {
@@ -1550,8 +1566,8 @@ where
             ) => {
                 self.handle_user_content_manager_action(user_content_manager_id, action);
             },
-            EmbedderToConstellationMessage::SetAccessibilityEnabled(webview_id, enabled) => {
-                self.set_accessibility_enabled(webview_id, enabled);
+            EmbedderToConstellationMessage::SetAccessibilityEnabled(enabled) => {
+                self.set_accessibility_enabled(enabled);
             },
         }
     }
@@ -2984,14 +3000,19 @@ where
         }
     }
 
-    fn set_accessibility_enabled(&mut self, webview_id: WebViewId, enabled: bool) {
-        let Some(webview) = self.webviews.get_mut(&webview_id) else {
-            warn!(
-                "Got request to enable/disable accessibility for unknown WebViewId: {webview_id:?}"
-            );
-            return;
-        };
-        webview.set_accessibility_enabled(enabled, &self.pipelines, &self.browsing_contexts);
+    fn set_accessibility_enabled(&mut self, enabled: bool) {
+        self.accessibility_enabled = enabled;
+        for browsing_context in self.browsing_contexts.values_mut() {
+            if let Some(pipeline) = self.pipelines.get(&browsing_context.pipeline_id) {
+                let _ = pipeline
+                    .event_loop
+                    .send(ScriptThreadMessage::SetAccessibilityEnabled(
+                        browsing_context.webview_id,
+                        pipeline.id,
+                        enabled,
+                    ));
+            }
+        }
     }
 
     fn forward_input_event(
@@ -3062,6 +3083,8 @@ where
             webview_id,
             ConstellationWebView::new(webview_id, browsing_context_id, user_content_manager_id),
         );
+
+        // TODO: enable accessibility if necessary?
 
         // https://html.spec.whatwg.org/multipage/#creating-a-new-browsing-context-group
         let mut new_bc_group: BrowsingContextGroup = Default::default();

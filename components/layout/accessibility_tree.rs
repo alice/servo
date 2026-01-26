@@ -64,6 +64,10 @@ impl AccessibilityTree {
         &mut self,
         root_node: ServoThreadSafeLayoutNode<'_>,
     ) -> Option<accesskit::TreeUpdate> {
+        // FIXME: set tree root node a better way
+	// Should probably be a dummy node which becomes the parent of the root DOM node
+        let root_node_id = Self::to_accesskit_id(&root_node.opaque());
+        self.accesskit_tree.root = root_node_id;
         let mut tree_update = AccessibilityUpdate::new(self.accesskit_tree.clone(), self.tree_id);
         self.update_node(root_node, &mut tree_update);
 
@@ -120,12 +124,12 @@ impl AccessibilityTree {
             trace!("node text content = {:?}", text_content);
             accesskit_node.set_value(&*text_content);
             // FIXME: this should take into account editing selection units (grapheme clusters?)
-            accesskit_node.set_character_lengths(
-                text_content
-                    .chars()
-                    .map(|c| c.len_utf8() as u8)
-                    .collect::<Box<[u8]>>(),
-            );
+            // accesskit_node.set_character_lengths(
+            //     text_content
+            //         .chars()
+            //         .map(|c| c.len_utf8() as u8)
+            //         .collect::<Box<[u8]>>(),
+            // );
         } else if let Some(dom_element) = dom_node.as_element() {
             let accesskit_node = &mut node.accesskit_node;
             if dom_element.is_html_element() {

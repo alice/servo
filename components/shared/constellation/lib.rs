@@ -113,7 +113,7 @@ pub enum EmbedderToConstellationMessage {
     /// An action to perform on the given `UserContentManagerId`.
     UserContentManagerAction(UserContentManagerId, UserContentManagerAction),
     /// An action to enable or disable accessibility.
-    SetAccessibilityEnabled(WebViewId, bool),
+    SetAccessibilityEnabled(bool),
 }
 
 pub enum UserContentManagerAction {

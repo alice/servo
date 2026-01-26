@@ -10,7 +10,6 @@ use std::collections::hash_map::Entry;
 use std::rc::Rc;
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use egui::accesskit::TreeUpdate;
 use euclid::Rect;
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use log::{error, info, warn};

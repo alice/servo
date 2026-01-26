@@ -7,7 +7,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use dpi::PhysicalSize;
-use egui::accesskit::{Role, TreeId, TreeUpdate, Uuid};
 use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
 use egui::{
@@ -466,10 +465,10 @@ impl Gui {
             // the size of its RenderingContext.
             let rect = ctx.available_rect();
             // *** FIXME(alice)
-            let tree_id = TreeId(Uuid::from_bytes([1; 16]));
+            let tree_id = accesskit::TreeId(accesskit::Uuid::from_bytes([1; 16]));
             let id = egui::Id::new("webview");
             ctx.accesskit_node_builder(id, |node| {
-                node.set_role(Role::Group);
+                node.set_role(accesskit::Role::Group);
                 node.set_tree_id(tree_id);
                 node.set_bounds(accesskit::Rect {
                     x0: rect.left() as f64,
