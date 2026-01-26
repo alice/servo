@@ -16,6 +16,7 @@ use style::dom::{NodeInfo, OpaqueNode};
 pub struct AccessibilityTree {
     nodes: FxHashMap<accesskit::NodeId, AccessibilityNode>,
     accesskit_tree: accesskit::Tree,
+    tree_id: accesskit::TreeId,
 }
 
 #[derive(Debug)]
@@ -29,23 +30,14 @@ struct AccessibilityUpdate {
     accesskit_update: accesskit::TreeUpdate,
 }
 
-impl Default for AccessibilityTree {
-    // TODO: should be new() which takes the root DOM node and sets the accesskit tree root node ID based on that
-    fn default() -> Self {
-        Self {
-            nodes: Default::default(),
-            accesskit_tree: accesskit::Tree::new(accesskit::NodeId(0)),
-        }
-    }
-}
-
 impl AccessibilityUpdate {
-    fn new(tree: accesskit::Tree) -> Self {
+    fn new(tree: accesskit::Tree, tree_id: accesskit::TreeId) -> Self {
         Self {
             accesskit_update: accesskit::TreeUpdate {
                 nodes: Default::default(),
                 tree: Some(tree),
                 focus: accesskit::NodeId(1),
+                tree_id,
             },
         }
     }
@@ -60,11 +52,19 @@ impl AccessibilityUpdate {
 }
 
 impl AccessibilityTree {
+    pub(super) fn new(tree_id: accesskit::TreeId) -> Self {
+        Self {
+            nodes: Default::default(),
+            accesskit_tree: accesskit::Tree::new(accesskit::NodeId(0)),
+            tree_id: tree_id,
+        }
+    }
+
     pub(super) fn update_tree(
         &mut self,
         root_node: ServoThreadSafeLayoutNode<'_>,
     ) -> Option<accesskit::TreeUpdate> {
-        let mut tree_update = AccessibilityUpdate::new(self.accesskit_tree.clone());
+        let mut tree_update = AccessibilityUpdate::new(self.accesskit_tree.clone(), self.tree_id);
         self.update_node(root_node, &mut tree_update);
 
         Some(tree_update.accesskit_update)

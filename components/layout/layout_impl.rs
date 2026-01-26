@@ -715,8 +715,13 @@ impl Layout for LayoutThread {
         if self.accessibility_tree.borrow().is_some() {
             return;
         }
-        // TODO: set accessibility tree ID based on webview id?
-        *self.accessibility_tree.borrow_mut() = Some(Default::default())
+        // TODO: Derive UUID in a standard way.
+        let uuid = accesskit::Uuid::from_u64_pair(
+            self.id.namespace_id.0.into(),
+            self.id.index.0.get().into(),
+        );
+        let tree_id = accesskit::TreeId(uuid);
+        *self.accessibility_tree.borrow_mut() = Some(AccessibilityTree::new(tree_id));
     }
 
     fn needs_accessibility_update(&self) -> bool {
