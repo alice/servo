@@ -13,6 +13,7 @@ use std::env;
 use std::rc::Rc;
 use std::time::Duration;
 
+use egui::accesskit::{TreeId, TreeUpdate};
 use euclid::{Angle, Length, Point2D, Rect, Rotation3D, Scale, Size2D, UnknownUnit, Vector3D};
 use keyboard_types::ShortcutMatcher;
 use log::{debug, info};
@@ -765,8 +766,11 @@ impl HeadedWindow {
                         webview.set_accessibility_enabled(true);
                     }
                 },
-                egui_winit::accesskit_winit::WindowEvent::ActionRequested(_) => {
+                egui_winit::accesskit_winit::WindowEvent::ActionRequested(req) => {
                     // TODO(#41930): forward action to the appropriate window, taking accesskit subtree into account
+                    if req.target_tree != TreeId::ROOT {
+                        println!("{:?}", req);
+                    }
                 },
                 egui_winit::accesskit_winit::WindowEvent::AccessibilityDeactivated => {
                     for (_id, webview) in window.webviews().into_iter() {

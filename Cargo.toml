@@ -323,3 +323,6 @@ codegen-units = 1
 #
 # mozjs = { path = "../mozjs/mozjs" }
 # mozjs_sys = { path = "../mozjs/mozjs-sys" }
+
+egui = { git = "https://github.com/emilk/egui.git", rev = "c59091a8f28564e2b21286d4e38cf2858e6bf328" }
+egui-winit = { git = "https://github.com/emilk/egui.git", rev = "c59091a8f28564e2b21286d4e38cf2858e6bf328" }

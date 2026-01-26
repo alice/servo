@@ -5,6 +5,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use egui::accesskit::TreeUpdate;
 use euclid::Scale;
 use log::warn;
 use servo::{
