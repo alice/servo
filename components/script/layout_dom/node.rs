@@ -20,6 +20,7 @@ use layout_api::{
 };
 use net_traits::image_cache::Image;
 use pixels::ImageMetadata;
+use script_bindings::str::DOMString;
 use selectors::Element as _;
 use servo_arc::Arc;
 use servo_url::ServoUrl;
@@ -292,6 +293,11 @@ impl<'dom> ServoThreadSafeLayoutNode<'dom> {
         };
 
         get_selected_style().unwrap_or_else(|| style_data.primary().clone())
+    }
+
+    pub fn dangerous_get_dom_text_content(self) -> Option<Cow<'dom, str>> {
+        let js_managed = unsafe { self.get_jsmanaged() };
+        js_managed.get_dom_text_content()
     }
 }
 

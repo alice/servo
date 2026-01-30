@@ -8,7 +8,7 @@ use accesskit::Role;
 use html5ever::{LocalName, local_name};
 use layout_api::wrapper_traits::{ThreadSafeLayoutElement, ThreadSafeLayoutNode};
 use log::trace;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use script::layout_dom::ServoThreadSafeLayoutNode;
 use style::dom::{NodeInfo, OpaqueNode};
 
@@ -53,25 +53,43 @@ impl AccessibilityUpdate {
 
 impl AccessibilityTree {
     pub(super) fn new(tree_id: accesskit::TreeId) -> Self {
-        Self {
+        // FIXME: Root node ID should be static
+        let root_node_id = accesskit::NodeId(0);
+        let mut tree = Self {
             nodes: Default::default(),
-            accesskit_tree: accesskit::Tree::new(accesskit::NodeId(0)),
-            tree_id: tree_id,
-        }
+            accesskit_tree: accesskit::Tree::new(root_node_id),
+            tree_id,
+        };
+        let root_node = AccessibilityNode::new(root_node_id);
+        tree.nodes.insert(root_node_id, root_node);
+
+        tree
     }
 
     pub(super) fn update_tree(
         &mut self,
-        root_node: ServoThreadSafeLayoutNode<'_>,
+        root_dom_node: ServoThreadSafeLayoutNode<'_>,
     ) -> Option<accesskit::TreeUpdate> {
-        // FIXME: set tree root node a better way
-	// Should probably be a dummy node which becomes the parent of the root DOM node
-        let root_node_id = Self::to_accesskit_id(&root_node.opaque());
-        self.accesskit_tree.root = root_node_id;
         let mut tree_update = AccessibilityUpdate::new(self.accesskit_tree.clone(), self.tree_id);
-        self.update_node(root_node, &mut tree_update);
+        self.update_root_dom_node(root_dom_node, &mut tree_update);
 
         Some(tree_update.accesskit_update)
+    }
+
+    fn update_root_dom_node(
+        &mut self,
+        root_dom_node: ServoThreadSafeLayoutNode<'_>,
+        tree_update: &mut AccessibilityUpdate,
+    ) {
+        let root_dom_node_id = Self::to_accesskit_id(&root_dom_node.opaque());
+        let root_accessibility_node_id = accesskit::NodeId(0);
+        let root_accessibility_node = self.nodes.get_mut(&root_accessibility_node_id).unwrap();
+        root_accessibility_node
+            .accesskit_node
+            .set_children(vec![root_dom_node_id]);
+        tree_update.add(&root_accessibility_node);
+
+        self.update_node(root_dom_node, tree_update);
     }
 
     fn update_node(
@@ -136,8 +154,17 @@ impl AccessibilityTree {
                 if let Some(role) = HTML_ELEMENT_ROLE_MAPPINGS.get(dom_element.get_local_name()) {
                     accesskit_node.set_role(*role);
                 }
+                if NAME_FROM_TEXT_CONTENT.contains(dom_element.get_local_name()) {
+                    if let Some(text_content) = dom_node.dangerous_get_dom_text_content() {
+                        let text_content = text_content.trim();
+                        accesskit_node.set_label(text_content);
+                    }
+                }
+                // TODO: if role is UNKNOWN or GROUP, and text content is empty, set label to html tag name
             }
         }
+
+        // bounds!
 
         node
     }
@@ -156,6 +183,40 @@ impl AccessibilityNode {
         }
     }
 }
+
+static NAME_FROM_TEXT_CONTENT: LazyLock<FxHashSet<LocalName>> = LazyLock::new(|| {
+    [
+        local_name!("a"),
+        local_name!("address"),
+        local_name!("b"),
+        local_name!("button"),
+        local_name!("caption"),
+        local_name!("del"),
+        local_name!("dfn"),
+        local_name!("em"),
+        local_name!("figcaption"),
+        local_name!("h1"),
+        local_name!("h2"),
+        local_name!("h3"),
+        local_name!("h4"),
+        local_name!("h5"),
+        local_name!("h6"),
+        local_name!("i"),
+        local_name!("ins"),
+        local_name!("li"),
+        local_name!("option"),
+        local_name!("small"),
+        local_name!("span"),
+        local_name!("strong"),
+        local_name!("td"),
+        local_name!("tfoot"),
+        local_name!("th"),
+        local_name!("time"),
+        local_name!("u"),
+    ]
+    .into_iter()
+    .collect()
+});
 
 /// <https://www.w3.org/TR/html-aam-1.0/#html-element-role-mappings>
 ///
