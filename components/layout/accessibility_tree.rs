@@ -149,7 +149,6 @@ impl AccessibilityTree {
             //         .collect::<Box<[u8]>>(),
             // );
         } else if let Some(dom_element) = dom_node.as_element() {
-            let accesskit_node = &mut node.accesskit_node;
             if dom_element.is_html_element() {
                 if let Some(role) = HTML_ELEMENT_ROLE_MAPPINGS.get(dom_element.get_local_name()) {
                     accesskit_node.set_role(*role);
@@ -165,6 +164,11 @@ impl AccessibilityTree {
         }
 
         // bounds!
+        if let Some(bounds) = dom_node.get_bounds() {
+          let origin = accesskit::Point {x: bounds.origin.x.to_f64_px(), y: bounds.origin.y.to_f64_px() };
+          let size = accesskit::Size {width: bounds.size.width.to_f64_px(), height: bounds.size.height.to_f64_px()};
+          accesskit_node.set_bounds(accesskit::Rect::from_origin_size(origin, size));
+        }
 
         node
     }

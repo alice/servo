@@ -8,7 +8,9 @@ use std::borrow::Cow;
 use std::fmt;
 use std::iter::FusedIterator;
 
+use app_units::Au;
 use base::id::{BrowsingContextId, PipelineId};
+use euclid::UnknownUnit;
 use fonts::TextByteRange;
 use fonts_traits::ByteIndex;
 use layout_api::wrapper_traits::{
@@ -298,6 +300,11 @@ impl<'dom> ServoThreadSafeLayoutNode<'dom> {
     pub fn dangerous_get_dom_text_content(self) -> Option<Cow<'dom, str>> {
         let js_managed = unsafe { self.get_jsmanaged() };
         js_managed.get_dom_text_content()
+    }
+
+    pub fn get_bounds(self) -> Option<euclid::default::Rect<Au>> {
+        let js_managed = unsafe { self.get_jsmanaged() };
+        js_managed.get_bounding_client_rect()
     }
 }
 
