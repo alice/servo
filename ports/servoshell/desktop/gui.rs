@@ -469,6 +469,7 @@ impl Gui {
             let id = egui::Id::new("webview");
             ctx.accesskit_node_builder(id, |node| {
                 node.set_role(accesskit::Role::Group);
+                node.set_label("graft");
                 node.set_tree_id(tree_id);
                 node.set_bounds(accesskit::Rect {
                     x0: rect.left() as f64,

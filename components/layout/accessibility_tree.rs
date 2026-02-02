@@ -5,12 +5,17 @@
 use std::sync::LazyLock;
 
 use accesskit::Role;
+use app_units::Au;
 use html5ever::{LocalName, local_name};
+use layout_api::BoxAreaType;
 use layout_api::wrapper_traits::{ThreadSafeLayoutElement, ThreadSafeLayoutNode};
-use log::trace;
+use log::{trace};
 use rustc_hash::{FxHashMap, FxHashSet};
 use script::layout_dom::ServoThreadSafeLayoutNode;
 use style::dom::{NodeInfo, OpaqueNode};
+
+use crate::display_list::StackingContextTree;
+use crate::query::process_box_area_request;
 
 #[derive(Debug)]
 pub struct AccessibilityTree {
@@ -60,7 +65,13 @@ impl AccessibilityTree {
             accesskit_tree: accesskit::Tree::new(root_node_id),
             tree_id,
         };
-        let root_node = AccessibilityNode::new(root_node_id);
+        let mut root_node = AccessibilityNode::new(root_node_id);
+        root_node
+            .accesskit_node
+            .set_role(accesskit::Role::RootWebArea);
+        root_node
+            .accesskit_node
+            .add_action(accesskit::Action::Focus);
         tree.nodes.insert(root_node_id, root_node);
 
         tree
@@ -69,9 +80,10 @@ impl AccessibilityTree {
     pub(super) fn update_tree(
         &mut self,
         root_dom_node: ServoThreadSafeLayoutNode<'_>,
+        stacking_context_tree: &StackingContextTree,
     ) -> Option<accesskit::TreeUpdate> {
         let mut tree_update = AccessibilityUpdate::new(self.accesskit_tree.clone(), self.tree_id);
-        self.update_root_dom_node(root_dom_node, &mut tree_update);
+        self.update_root_dom_node(root_dom_node, &mut tree_update, stacking_context_tree);
 
         Some(tree_update.accesskit_update)
     }
@@ -80,6 +92,7 @@ impl AccessibilityTree {
         &mut self,
         root_dom_node: ServoThreadSafeLayoutNode<'_>,
         tree_update: &mut AccessibilityUpdate,
+        stacking_context_tree: &StackingContextTree,
     ) {
         let root_dom_node_id = Self::to_accesskit_id(&root_dom_node.opaque());
         let root_accessibility_node_id = accesskit::NodeId(0);
@@ -87,15 +100,34 @@ impl AccessibilityTree {
         root_accessibility_node
             .accesskit_node
             .set_children(vec![root_dom_node_id]);
+
+        // Update bounds for root web area
+        let root_dom_node_bounds = get_bounds(root_dom_node, stacking_context_tree)
+            .expect("root dom node should have bounds");
+        let root_dom_node_origin = root_dom_node_bounds.origin;
+        let viewport_size = stacking_context_tree.paint_info.viewport_details.size;
+        let origin = accesskit::Point {
+            x: root_dom_node_origin.x.to_f64_px(),
+            y: root_dom_node_origin.y.to_f64_px(),
+        };
+        let size = accesskit::Size {
+            width: viewport_size.width.into(),
+            height: viewport_size.height.into(),
+        };
+        root_accessibility_node
+            .accesskit_node
+            .set_bounds(accesskit::Rect::from_origin_size(origin, size));
+
         tree_update.add(&root_accessibility_node);
 
-        self.update_node(root_dom_node, tree_update);
+        self.update_node(root_dom_node, tree_update, stacking_context_tree);
     }
 
     fn update_node(
         &mut self,
         dom_node: ServoThreadSafeLayoutNode<'_>,
         tree_update: &mut AccessibilityUpdate,
+        stacking_context_tree: &StackingContextTree,
     ) {
         // TODO: actually compute whether updated or not :)
         let updated = true;
@@ -107,10 +139,28 @@ impl AccessibilityTree {
             let child_node = self.get_or_create_node(dom_child);
             // FIXME: don't want to call get_or_create twice!
             new_children.push(child_node.id);
-            self.update_node(dom_child, tree_update);
+            self.update_node(dom_child, tree_update, stacking_context_tree);
         }
 
         let accessibility_node = self.get_or_create_node(dom_node);
+        if let Some(bounds) = get_bounds(dom_node, stacking_context_tree) {
+            let origin = accesskit::Point {
+                x: bounds.origin.x.to_f64_px(),
+                y: bounds.origin.y.to_f64_px(),
+            };
+            let size = accesskit::Size {
+                width: bounds.size.width.to_f64_px(),
+                height: bounds.size.height.to_f64_px(),
+            };
+            //info!("origin: {:?}, size: {:?}", origin, size);
+            accessibility_node
+                .accesskit_node
+                .set_bounds(accesskit::Rect::from_origin_size(origin, size));
+            //info!(
+            //    "accesskit_node bounds: {:?}",
+            //    accessibility_node.accesskit_node.bounds()
+            //);
+        }
 
         // TODO: initialise/update properties here rather than in get_or_create_node
 
@@ -159,16 +209,15 @@ impl AccessibilityTree {
                         accesskit_node.set_label(text_content);
                     }
                 }
+                if accesskit_node.label().is_none() {
+                    let local_name = format!("<{}>", dom_element.get_local_name());
+                    accesskit_node.set_label(local_name);
+                }
                 // TODO: if role is UNKNOWN or GROUP, and text content is empty, set label to html tag name
             }
         }
 
-        // bounds!
-        if let Some(bounds) = dom_node.get_bounds() {
-          let origin = accesskit::Point {x: bounds.origin.x.to_f64_px(), y: bounds.origin.y.to_f64_px() };
-          let size = accesskit::Size {width: bounds.size.width.to_f64_px(), height: bounds.size.height.to_f64_px()};
-          accesskit_node.set_bounds(accesskit::Rect::from_origin_size(origin, size));
-        }
+        //// bounds!
 
         node
     }
@@ -176,6 +225,13 @@ impl AccessibilityTree {
     fn to_accesskit_id(opaque: &OpaqueNode) -> accesskit::NodeId {
         accesskit::NodeId(opaque.0 as u64)
     }
+}
+
+fn get_bounds(
+    dom_node: ServoThreadSafeLayoutNode<'_>,
+    stacking_context_tree: &StackingContextTree,
+) -> Option<euclid::default::Rect<Au>> {
+    process_box_area_request(stacking_context_tree, dom_node, BoxAreaType::Border, false)
 }
 
 impl AccessibilityNode {

@@ -909,8 +909,12 @@ impl LayoutThread {
         let Some(accessibility_tree) = accessibility_tree.as_mut() else {
             return false;
         };
+        let stacking_context_tree = self.stacking_context_tree.borrow();
+        let Some(stacking_context_tree) = stacking_context_tree.as_ref() else {
+            return false;
+        };
         let accessibility_tree = &mut *accessibility_tree;
-        if let Some(tree_update) = accessibility_tree.update_tree(root_element.to_threadsafe()) {
+        if let Some(tree_update) = accessibility_tree.update_tree(root_element.to_threadsafe(), stacking_context_tree) {
             // FIXME: Handle send error. Could have a method on accessibility tree to
             // finalise after sending, removing accessibility damage? On fail, retain damage
             // for next reflow, as well as retaining document.needs_accessibility_update.

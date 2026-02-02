@@ -1737,7 +1737,6 @@ pub(crate) trait LayoutNodeHelpers<'dom> {
     fn is_in_ua_widget(&self) -> bool;
 
     fn get_dom_text_content(self) -> Option<Cow<'dom, str>>;
-    fn get_bounding_client_rect(self) -> Option<Rect<Au>>;
 }
 
 impl<'dom> LayoutDom<'dom, Node> {
@@ -1806,22 +1805,11 @@ impl<'dom> LayoutNodeHelpers<'dom> for LayoutDom<'dom, Node> {
     }
 
     #[inline]
-    #[expect(unsafe_code)]
     fn get_dom_text_content(self) -> Option<Cow<'dom, str>> {
-        unsafe {
-            let Some(dom_string) = self.unsafe_get().GetTextContent() else {
-                return None;
-            };
-            return Some(String::from(dom_string.str()).into());
-        }
-    }
-
-    #[inline]
-    #[expect(unsafe_code)]
-    fn get_bounding_client_rect(self) -> Option<Rect<Au>> {
-      unsafe {
-        self.unsafe_get().border_box()
-      }
+        let Some(dom_string) = self.unsafe_get().GetTextContent() else {
+            return None;
+        };
+        return Some(String::from(dom_string.str()).into());
     }
 
     #[inline]
