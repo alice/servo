@@ -10,8 +10,8 @@ use dpi::PhysicalSize;
 use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
 use egui::{
-    Button, Key, Label, LayerId, Modifiers, PaintCallback, TopBottomPanel, Vec2, WidgetInfo,
-    WidgetType, pos2,
+    Button, Key, Label, LayerId, Modifiers, PaintCallback, Panel, Vec2, WidgetInfo, WidgetType,
+    pos2,
 };
 use egui_glow::{CallbackFn, EguiGlow};
 use egui_winit::EventResponse;
@@ -257,6 +257,8 @@ impl Gui {
     }
 
     /// Update the user interface, but do not paint the updated state.
+    // TODO: Remove this #[allow] once we can use the newer egui methods.
+    #[allow(deprecated)]
     pub(crate) fn update(
         &mut self,
         state: &RunningAppState,
@@ -277,16 +279,18 @@ impl Gui {
         } = self;
 
         let winit_window = headed_window.winit_window();
-        context.run(winit_window, |ctx| {
-            load_pending_favicons(ctx, window, favicon_textures);
+        context.run(winit_window, |ui| {
+            load_pending_favicons(ui.ctx(), window, favicon_textures);
 
             // TODO: While in fullscreen add some way to mitigate the increased phishing risk
             // when not displaying the URL bar: https://github.com/servo/servo/issues/32443
             if winit_window.fullscreen().is_none() {
                 let frame = egui::Frame::default()
-                    .fill(ctx.style().visuals.window_fill)
+                    .fill(ui.ctx().global_style().visuals.window_fill)
                     .inner_margin(4.0);
-                TopBottomPanel::top("toolbar").frame(frame).show(ctx, |ui| {
+                // TODO: This should use show_inside(), but that doesn't position the toolbar
+                // correctly.
+                Panel::top("toolbar").frame(frame).show(ui.ctx(), |ui| {
                     ui.allocate_ui_with_layout(
                         ui.available_size(),
                         egui::Layout::left_to_right(egui::Align::Center),
@@ -420,7 +424,8 @@ impl Gui {
                 });
 
                 // A simple Tab header strip
-                TopBottomPanel::top("tabs").show(ctx, |ui| {
+                // TODO: This should use show_inside() but that doesn't position the tabs correctly.
+                Panel::top("tabs").show(ui.ctx(), |ui| {
                     ui.allocate_ui_with_layout(
                         ui.available_size(),
                         egui::Layout::left_to_right(egui::Align::Center),
@@ -460,18 +465,22 @@ impl Gui {
             };
 
             // The toolbar height is where the Context’s available rect starts.
-            // For reasons that are unclear, the TopBottomPanel’s ui cursor exceeds this by one egui
-            // point, but the Context is correct and the TopBottomPanel is wrong.
-            *toolbar_height = Length::new(ctx.available_rect().min.y);
+            // For reasons that are unclear, the Panel’s ui cursor exceeds this by one egui
+            // point, but the Context is correct and the Panel is wrong.
+            // TODO: available_rect() is deprecated in favour of content_rect(), but content_rect()
+            // doesn't track what space has already been used by other panels.
+            *toolbar_height = Length::new(ui.ctx().available_rect().min.y);
 
             let scale =
-                Scale::<_, DeviceIndependentPixel, DevicePixel>::new(ctx.pixels_per_point());
+                Scale::<_, DeviceIndependentPixel, DevicePixel>::new(ui.ctx().pixels_per_point());
 
-            headed_window.for_each_active_dialog(window, |dialog| dialog.update(ctx));
+            headed_window.for_each_active_dialog(window, |dialog| dialog.update(ui.ctx()));
 
             // If the top parts of the GUI changed size, then update the size of the WebView and also
             // the size of its RenderingContext.
-            let rect = ctx.available_rect();
+            // TODO: available_rect() is deprecated in favour of content_rect(), but content_rect()
+            // doesn't track what space has already been used by other panels.
+            let rect = ui.ctx().available_rect();
             let size = Size2D::new(rect.width(), rect.height()) * scale;
             if let Some(webview) = window.active_webview() &&
                 size != webview.size()
@@ -484,10 +493,13 @@ impl Gui {
 
             if let Some(status_text) = &self.status_text {
                 egui::Tooltip::always_open(
-                    ctx.clone(),
+                    ui.ctx().clone(),
                     LayerId::background(),
                     "tooltip layer".into(),
-                    pos2(0.0, ctx.available_rect().max.y),
+                    // TODO: available_rect() is deprecated in favour of content_rect(), but
+                    // content_rect() doesn't track what space has already been used by other
+                    // panels.
+                    pos2(0.0, ui.ctx().available_rect().max.y),
                 )
                 .show(|ui| ui.add(Label::new(status_text.clone()).extend()));
             }
@@ -495,17 +507,22 @@ impl Gui {
             window.repaint_webviews();
 
             if let Some(render_to_parent) = rendering_context.render_to_parent_callback() {
-                ctx.layer_painter(LayerId::background()).add(PaintCallback {
-                    rect: ctx.available_rect(),
-                    callback: Arc::new(CallbackFn::new(move |info, painter| {
-                        let clip = info.viewport_in_pixels();
-                        let rect_in_parent = Rect::new(
-                            Point2D::new(clip.left_px, clip.from_bottom_px),
-                            Size2D::new(clip.width_px, clip.height_px),
-                        );
-                        render_to_parent(painter.gl(), rect_in_parent)
-                    })),
-                });
+                ui.ctx()
+                    .layer_painter(LayerId::background())
+                    .add(PaintCallback {
+                        // TODO: available_rect() is deprecated in favour of content_rect(), but
+                        // content_rect() doesn't track what space has already been used by other
+                        // panels.
+                        rect: ui.ctx().available_rect(),
+                        callback: Arc::new(CallbackFn::new(move |info, painter| {
+                            let clip = info.viewport_in_pixels();
+                            let rect_in_parent = Rect::new(
+                                Point2D::new(clip.left_px, clip.from_bottom_px),
+                                Size2D::new(clip.width_px, clip.height_px),
+                            );
+                            render_to_parent(painter.gl(), rect_in_parent)
+                        })),
+                    });
             }
         });
     }
