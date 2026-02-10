@@ -386,6 +386,8 @@ pub trait ThreadSafeLayoutElement<'dom>:
     /// Note that, like `Self::is_body_element_of_html_element_root`, this accesses the parent.
     /// As in that case, since this is an immutable borrow, we do not violate thread safety.
     fn is_root(&self) -> bool;
+
+    fn id(&self) -> Option<&str>;
 }
 
 /// A chain of pseudo-elements up to two levels deep. This is used to represent cases

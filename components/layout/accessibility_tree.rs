@@ -9,7 +9,7 @@ use app_units::Au;
 use html5ever::{LocalName, local_name};
 use layout_api::BoxAreaType;
 use layout_api::wrapper_traits::{ThreadSafeLayoutElement, ThreadSafeLayoutNode};
-use log::trace;
+use log::{info, trace};
 use rustc_hash::{FxHashMap, FxHashSet};
 use script::layout_dom::ServoThreadSafeLayoutNode;
 use style::dom::{NodeInfo, OpaqueNode};
@@ -192,6 +192,11 @@ impl AccessibilityTree {
             // );
         } else if let Some(dom_element) = dom_node.as_element() {
             if dom_element.is_html_element() {
+                if let Some(id) = dom_element.id() {
+                    info!("setting id: {id}");
+                    accesskit_node.set_author_id(id);
+                    accesskit_node.set_braille_label(id);
+                }
                 if let Some(role) = HTML_ELEMENT_ROLE_MAPPINGS.get(dom_element.get_local_name()) {
                     accesskit_node.set_role(*role);
                 }

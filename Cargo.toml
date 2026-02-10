@@ -341,3 +341,8 @@ codegen-units = 1
 egui = { git = "https://github.com/emilk/egui.git", rev = "8eb50c2b2d35e6d3269ac2bce5d782f9be1d0ddd" }
 egui-winit = { git = "https://github.com/emilk/egui.git", rev = "8eb50c2b2d35e6d3269ac2bce5d782f9be1d0ddd" }
 egui_glow = { git = "https://github.com/emilk/egui.git", rev = "8eb50c2b2d35e6d3269ac2bce5d782f9be1d0ddd" }
+
+accesskit = { path = "../accesskit/common" }
+accesskit_winit = { path = "../accesskit/platforms/winit" }
+accesskit_consumer = { path = "../accesskit/consumer" }
+accesskit_macos = { path = "../accesskit/platforms/macos" }

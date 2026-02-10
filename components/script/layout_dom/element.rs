@@ -1132,6 +1132,13 @@ impl<'dom> ThreadSafeLayoutElement<'dom> for ServoThreadSafeLayoutElement<'dom> 
     fn is_root(&self) -> bool {
         self.element.is_root()
     }
+
+    fn id(&self) -> Option<&str> {
+      if let Some(id) = self.element.id() {
+        return Some(&*id);
+      }
+      None
+    }
 }
 
 /// This implementation of `::selectors::Element` is used for implementing lazy
