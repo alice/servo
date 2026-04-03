@@ -673,12 +673,12 @@ impl Layout for LayoutThread {
             self.accessibility_tree.replace(None);
             return;
         }
+        self.set_needs_accessibility_update();
         let mut accessibility_tree = self.accessibility_tree.borrow_mut();
         if accessibility_tree.is_some() {
             return;
         }
         *accessibility_tree = Some(AccessibilityTree::new(self.id.into()));
-        self.set_needs_accessibility_update();
     }
 
     fn needs_accessibility_update(&self) -> bool {
@@ -813,7 +813,7 @@ impl LayoutThread {
             return false;
         }
         // If accessibility was just activated, we need reflow to build the accessibility tree.
-        if self.needs_accessibility_update.take() {
+        if self.needs_accessibility_update() {
             return false;
         }
 
@@ -885,6 +885,7 @@ impl LayoutThread {
                     tree_update,
                 ));
         }
+        self.needs_accessibility_update.set(false);
         true
     }
 
@@ -941,6 +942,7 @@ impl LayoutThread {
             reflow_phases_run.insert(ReflowPhasesRun::UpdatedScrollNodeOffset);
         }
         if self.accessibility_tree.borrow().is_some() &&
+            self.needs_accessibility_update() &&
             self.handle_accessibility_tree_update(&root_element.as_node())
         {
             reflow_phases_run.insert(ReflowPhasesRun::UpdatedAccessibilityTree);
