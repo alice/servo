@@ -30,6 +30,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::{mem, ptr};
 
+use embedder_traits::UntrustedNodeAddress;
 use js::context::NoGC;
 use js::jsapi::{Heap, JSObject, JSTracer, Value};
 use js::rust::HandleValue;
@@ -158,6 +159,19 @@ impl LayoutDom<'_, Node> {
         let TrustedNodeAddress(addr) = inner;
         LayoutDom {
             value: unsafe { &*(addr as *const Node) },
+        }
+    }
+
+    /// Create a new JS-owned value wrapped from an address known to be a
+    /// `Node` pointer.
+    pub unsafe fn from_untrusted_node_address(inner: UntrustedNodeAddress) -> Self {
+        assert_in_layout();
+        unsafe {
+            let script_node = Node::from_untrusted_node_address(inner);
+            let TrustedNodeAddress(addr) = script_node.to_trusted_node_address();
+            LayoutDom {
+                value: &*(addr as *const Node),
+            }
         }
     }
 }

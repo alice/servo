@@ -8,6 +8,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::iter::FusedIterator;
 
+use embedder_traits::UntrustedNodeAddress;
 use layout_api::wrapper_traits::{
     LayoutDataTrait, LayoutNode, PseudoElementChain, SharedSelection, ThreadSafeLayoutElement,
     ThreadSafeLayoutNode,
@@ -86,6 +87,16 @@ impl<'dom> ServoLayoutNode<'dom> {
     /// The address pointed to by `address` should point to a valid node in memory.
     pub unsafe fn new(address: &TrustedNodeAddress) -> Self {
         let node = unsafe { LayoutDom::from_trusted_node_address(*address) };
+        ServoLayoutNode::from_layout_dom(node)
+    }
+
+    /// Create a new [`ServoLayoutNode`] for this given [`UntrustedNodeAddress`].
+    ///
+    /// # Safety
+    ///
+    /// The address pointed to by `address` should point to a valid node in memory.
+    pub unsafe fn from_untrusted(address: &UntrustedNodeAddress) -> Self {
+        let node = unsafe { LayoutDom::from_untrusted_node_address(*address) };
         ServoLayoutNode::from_layout_dom(node)
     }
 
