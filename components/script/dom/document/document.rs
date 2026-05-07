@@ -33,8 +33,8 @@ use hyper_serde::Serde;
 use js::realm::CurrentRealm;
 use js::rust::{HandleObject, HandleValue, MutableHandleValue};
 use layout_api::{
-    PendingRestyle, ReflowGoal, ReflowPhasesRun, ReflowStatistics, RestyleReason,
-    ScrollContainerQueryFlags, TrustedNodeAddress,
+    AccessibilityDamage, PendingRestyle, ReflowGoal, ReflowPhasesRun, ReflowStatistics,
+    RestyleReason, ScrollContainerQueryFlags, TrustedNodeAddress,
 };
 use metrics::{InteractiveFlag, InteractiveWindow, ProgressiveWebMetrics};
 use net_traits::CookieSource::NonHTTP;
@@ -305,6 +305,9 @@ struct AccessibilityData {
     /// This allows the lifetime of nodes to be guaranteed to be at least as long as the lifetime
     /// of their corresponding accessibility nodes.
     rooted_nodes: DomRefCell<FxHashMap<NoTrace<OpaqueNode>, Dom<Node>>>,
+
+    /// TODO
+    pending_damage: DomRefCell<NoTrace<FxHashMap<OpaqueNode, AccessibilityDamage>>>,
 }
 
 /// Reasons why a [`Document`] might need a rendering update that is otherwise
@@ -3399,6 +3402,42 @@ impl Document {
         })
     }
 
+    pub(crate) fn add_pending_accessibility_damage_for_node(
+        &self,
+        node: &Node,
+        damage: AccessibilityDamage,
+    ) {
+        if !pref!(accessibility_enabled) {
+            return;
+        }
+
+        let accessibility_data = self.accessibility_data();
+        let map = &mut accessibility_data.pending_damage.borrow_mut().0;
+        let pending_damage = map.entry(node.to_opaque()).or_default();
+        *pending_damage |= damage;
+
+        self.owner_window()
+            .layout()
+            .set_needs_accessibility_update();
+    }
+
+    #[expect(unsafe_code)]
+    pub(crate) fn drain_pending_accessibility_damage_for_layout(
+        &self,
+    ) -> Option<FxHashMap<OpaqueNode, AccessibilityDamage>> {
+        unsafe {
+            let accessibility_data = self.accessibility_data.borrow_mut_for_layout();
+            let accessibility_data = accessibility_data.as_ref();
+            let pending_damage = &mut accessibility_data?.pending_damage.borrow_mut_for_layout().0;
+            let mut map: FxHashMap<OpaqueNode, AccessibilityDamage> = Default::default();
+            // TODO: surely we can do better than this :(
+            let _ = pending_damage
+                .drain()
+                .map(|(opaque_node, damage)| map.insert(opaque_node, damage));
+            Some(map)
+        }
+    }
+
     #[expect(unsafe_code)]
     pub(crate) fn root_nodes_for_accessibility(
         &self,
@@ -3476,6 +3515,13 @@ impl<'dom> LayoutDom<'dom, Document> {
         let id_map = unsafe { self.unsafe_get().id_map.borrow_for_layout() };
         let matching_elements = id_map.get(id).map(Vec::as_slice).unwrap_or_default();
         unsafe { LayoutDom::to_layout_slice(matching_elements) }
+    }
+
+    pub(crate) fn drain_pending_accessibility_damage(
+        self,
+    ) -> Option<FxHashMap<OpaqueNode, AccessibilityDamage>> {
+        self.unsafe_get()
+            .drain_pending_accessibility_damage_for_layout()
     }
 }
 

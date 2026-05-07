@@ -944,7 +944,11 @@ impl LayoutThread {
         }
     }
 
-    fn handle_accessibility_tree_update(&mut self, root_element: &ServoLayoutNode) -> bool {
+    fn handle_accessibility_tree_update(
+        &mut self,
+        document: &ServoDangerousStyleDocument,
+        root_element: &ServoLayoutNode,
+    ) -> bool {
         if !self.needs_accessibility_update() {
             return false;
         }
@@ -954,8 +958,9 @@ impl LayoutThread {
         };
 
         let accessibility_tree = &mut *accessibility_tree;
+        let damage = document.drain_pending_accessibility_damage();
         if let (Some(tree_update), Some(new_opaque_nodes), Some(stale_opaque_nodes)) =
-            accessibility_tree.update_tree(root_element)
+            accessibility_tree.update_tree(root_element, &damage)
         {
             self.new_nodes_for_accessibility = new_opaque_nodes;
             self.stale_nodes_for_accessibility = stale_opaque_nodes;
@@ -1029,7 +1034,7 @@ impl LayoutThread {
         if self.handle_update_scroll_node_request(&reflow_request) {
             reflow_phases_run.insert(ReflowPhasesRun::UpdatedScrollNodeOffset);
         }
-        if self.handle_accessibility_tree_update(&root_element.as_node()) {
+        if self.handle_accessibility_tree_update(&document, &root_element.as_node()) {
             reflow_phases_run.insert(ReflowPhasesRun::UpdatedAccessibilityTree);
         }
 

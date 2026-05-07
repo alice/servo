@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{LazyLock, atomic};
 
 use accesskit::Role;
-use layout_api::{LayoutElement, LayoutNode, LayoutNodeType};
+use layout_api::{AccessibilityDamage, LayoutElement, LayoutNode, LayoutNodeType};
 use log::trace;
 use rustc_hash::{FxHashMap, FxHashSet};
 use script::layout_dom::ServoLayoutNode;
@@ -27,6 +27,7 @@ struct AccessibilityUpdate {
 struct AccessibilityNode {
     id: accesskit::NodeId,
     accesskit_node: accesskit::Node,
+    damage: AccessibilityDamage,
     opaque_node: Option<OpaqueNode>,
     updated: bool,
 }
@@ -67,6 +68,7 @@ impl AccessibilityTree {
     pub(super) fn update_tree(
         &mut self,
         root_dom_node: &ServoLayoutNode<'_>,
+        damage: &FxHashMap<OpaqueNode, AccessibilityDamage>,
     ) -> (
         Option<accesskit::TreeUpdate>,
         Option<Vec<OpaqueNode>>,
@@ -81,7 +83,7 @@ impl AccessibilityTree {
 
         let mut tree_update =
             AccessibilityUpdate::new(accesskit::Tree::new(root_node_id), self.tree_id);
-        let any_node_updated = self.update_node_and_descendants(root_dom_node, &mut tree_update);
+        let any_node_updated = self.update_node_and_descendants(root_dom_node, damage, &mut tree_update);
 
         if !any_node_updated {
             assert!(self.tree_state_changes.is_empty());
@@ -144,13 +146,14 @@ impl AccessibilityTree {
     fn update_node_and_descendants(
         &mut self,
         dom_node: &ServoLayoutNode<'_>,
+        damage: &FxHashMap<OpaqueNode, AccessibilityDamage>,
         tree_update: &mut AccessibilityUpdate,
     ) -> bool {
         let node = self.assert_node_by_dom_node(dom_node);
         let mut node = node.borrow_mut();
 
         // TODO: read accessibility damage (right now, assume damage is complete)
-        let any_descendant_updated = node.update_descendants(dom_node, self, tree_update);
+        let any_descendant_updated = node.update_descendants(dom_node, self, damage, tree_update);
 
         node.update_node(dom_node, self, any_descendant_updated);
 
@@ -274,6 +277,7 @@ impl AccessibilityNode {
         Self {
             id,
             accesskit_node: accesskit::Node::new(role),
+            damage: AccessibilityDamage::REBUILD,
             opaque_node: None,
             updated: true,
         }
@@ -283,8 +287,13 @@ impl AccessibilityNode {
         &mut self,
         dom_node: &ServoLayoutNode<'dom>,
         tree: &mut AccessibilityTree,
+        damage: &FxHashMap<OpaqueNode, AccessibilityDamage>,
         tree_update: &mut AccessibilityUpdate,
     ) -> bool {
+        if !self.damage.contains(AccessibilityDamage::CHILDREN) {
+            // FIXME
+            return false;
+        }
         let mut any_descendant_updated = false;
         let new_children: Vec<accesskit::NodeId> = dom_node
             .flat_tree_children()
@@ -292,9 +301,9 @@ impl AccessibilityNode {
                 let child_node = tree.get_or_create_node(&dom_child);
                 let child_node_id = child_node.borrow().id;
 
-                // TODO: We actually need to propagate damage within the accessibility tree, rather than
-                // assuming it matches the DOM tree, but this will do for now.
-                any_descendant_updated |= tree.update_node_and_descendants(&dom_child, tree_update);
+                // TODO: Once we implement aria-owns, we'll need to walk the accessibility tree children
+                any_descendant_updated |=
+                    tree.update_node_and_descendants(&dom_child, damage, tree_update);
 
                 child_node_id
             })
@@ -352,6 +361,10 @@ impl AccessibilityNode {
         tree: &mut AccessibilityTree,
         any_descendant_updated: bool,
     ) {
+        if !self.damage.contains(AccessibilityDamage::TEXT) {
+            // FIXME
+            return;
+        }
         self.set_role(role_from_dom_node(dom_node));
         if dom_node.is_element() {
             if any_descendant_updated && let Some(text) = self.label_from_descendants(tree) {
