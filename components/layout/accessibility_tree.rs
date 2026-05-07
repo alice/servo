@@ -67,7 +67,11 @@ impl AccessibilityTree {
     pub(super) fn update_tree(
         &mut self,
         root_dom_node: &ServoLayoutNode<'_>,
-    ) -> Option<accesskit::TreeUpdate> {
+    ) -> (
+        Option<accesskit::TreeUpdate>,
+        Option<Vec<OpaqueNode>>,
+        Option<Vec<OpaqueNode>>,
+    ) {
         let root_node = self.get_or_create_node(root_dom_node);
         let root_node_id = root_node.borrow().id;
 
@@ -81,32 +85,58 @@ impl AccessibilityTree {
 
         if !any_node_updated {
             assert!(self.tree_state_changes.is_empty());
-            return None;
+            return (None, None, None);
         }
 
-        self.finalize_tree_state_changes();
+        let (new_opaque_nodes, stale_opaque_nodes) = self.finalize_tree_state_changes();
 
         if pref!(expensive_accessibility_test_assertions_enabled) {
             self.assert_integrity(root_node_id);
         }
 
-        Some(tree_update.finalize())
+        (
+            Some(tree_update.finalize()),
+            Some(new_opaque_nodes),
+            Some(stale_opaque_nodes),
+        )
     }
 
-    fn finalize_tree_state_changes(&mut self) {
-        for id in self.tree_state_changes.drain().filter_map(|(id, change)| {
-            if change == TreeStateChange::Removed {
-                return Some(id);
-            }
-            None
-        }) {
-            let Some(node) = self.nodes.remove(&id) else {
-                continue;
-            };
-            if let Some(opaque_node) = node.borrow().opaque_node {
-                self.opaque_node_to_id.remove(&opaque_node);
+    /// Drain the map of tree state changes, pruning from the cache any nodes which have been marked
+    /// for removal and returning a pair of `Vec<OpaqueNode>` representing the DOM nodes which have
+    /// been newly added to the accessibility tree, and DOM nodes which have been removed from the
+    /// accessibility tree, respectively.
+    fn finalize_tree_state_changes(&mut self) -> (Vec<OpaqueNode>, Vec<OpaqueNode>) {
+        let mut new_opaque_nodes: Vec<OpaqueNode> = Vec::default();
+        let mut stale_opaque_nodes: Vec<OpaqueNode> = Vec::default();
+        for (id, change) in self.tree_state_changes.drain() {
+            match change {
+                TreeStateChange::New => {
+                    let Some(node) = self.nodes.get(&id) else {
+                        panic!("TreeStateChange::New node with id {id:?} not found in tree");
+                    };
+                    if let Some(opaque_node) = node.borrow().opaque_node {
+                        // Currently all accessibility nodes correspond to DOM nodes, but this may
+                        // not always be true.
+                        new_opaque_nodes.push(opaque_node);
+                    }
+                },
+                TreeStateChange::Removed => {
+                    let Some(node) = self.nodes.remove(&id) else {
+                        panic!("TreeStateChange::Removed node with id {id:?} not found in tree");
+                    };
+                    if let Some(opaque_node) = node.borrow().opaque_node {
+                        self.opaque_node_to_id.remove(&opaque_node);
+                        stale_opaque_nodes.push(opaque_node);
+                    }
+                },
+                TreeStateChange::Moved => {
+                    // We only track moved nodes to avoid incorrectly marking them as removed, so
+                    // we just silently drop them here.
+                },
             }
         }
+
+        (new_opaque_nodes, stale_opaque_nodes)
     }
 
     /// Update this tree starting at the given DOM node, adding any changed nodes to the given
