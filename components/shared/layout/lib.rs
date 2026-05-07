@@ -29,7 +29,7 @@ use bitflags::bitflags;
 use embedder_traits::{Cursor, ScriptToEmbedderChan, Theme, UntrustedNodeAddress, ViewportDetails};
 use euclid::{Point2D, Rect};
 use fonts::{FontContext, TextByteRange, WebFontDocumentContext};
-pub use layout_damage::LayoutDamage;
+pub use layout_damage::{AccessibilityDamage, LayoutDamage};
 pub use layout_dom::{
     DangerousStyleElementOf, DangerousStyleNodeOf, LayoutDomTypeBundle, LayoutElementOf,
     LayoutNodeOf,
@@ -707,6 +707,8 @@ pub struct ReflowRequest {
     pub highlighted_dom_node: Option<OpaqueNode>,
     /// The current font context.
     pub document_context: WebFontDocumentContext,
+    // /// TODO
+    // pub accessibility_damage: Option<Vec<(TrustedNodeAddress, AccessibilityDamage)>>,
 }
 
 impl ReflowRequest {

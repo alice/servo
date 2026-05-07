@@ -71,3 +71,13 @@ impl std::fmt::Debug for LayoutDamage {
         }
     }
 }
+
+bitflags! {
+    #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
+    pub struct AccessibilityDamage: u16 {
+        const TEXT = 0b0001;
+        const CHILDREN = 0b0010;
+        const REBUILD = 0b1111;
+    }
+}
+malloc_size_of::malloc_size_of_is_0!(AccessibilityDamage);

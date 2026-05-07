@@ -31,8 +31,8 @@ use hyper_serde::Serde;
 use js::realm::CurrentRealm;
 use js::rust::{HandleObject, HandleValue, MutableHandleValue};
 use layout_api::{
-    PendingRestyle, ReflowGoal, ReflowPhasesRun, ReflowStatistics, RestyleReason,
-    ScrollContainerQueryFlags, TrustedNodeAddress,
+    AccessibilityDamage, PendingRestyle, ReflowGoal, ReflowPhasesRun, ReflowStatistics,
+    RestyleReason, ScrollContainerQueryFlags, TrustedNodeAddress,
 };
 use metrics::{InteractiveFlag, InteractiveWindow, ProgressiveWebMetrics};
 use net_traits::CookieSource::NonHTTP;
@@ -64,6 +64,7 @@ use servo_media::{ClientContextId, ServoMedia};
 use servo_url::{ImmutableOrigin, MutableOrigin, ServoUrl};
 use style::attr::AttrValue;
 use style::context::QuirksMode;
+use style::dom::OpaqueNode;
 use style::invalidation::element::restyle_hints::RestyleHint;
 use style::selector_parser::Snapshot;
 use style::shared_lock::{SharedRwLock, SharedRwLockReadGuard};
@@ -3389,6 +3390,16 @@ impl Document {
 
         self.accessibility_data.borrow_mut()
     }
+
+    #[expect(unsafe_code)]
+    pub(crate) fn drain_pending_accessibility_damage_for_layout(
+        &self,
+    ) -> Option<FxHashMap<OpaqueNode, AccessibilityDamage>> {
+        unsafe {
+            let accessibility_data = self.accessibility_data.borrow_mut_for_layout();
+            accessibility_data.drain_pending_accessibility_damage_for_layout()
+        }
+    }
 }
 
 #[derive(MallocSizeOf, PartialEq)]
@@ -3432,6 +3443,17 @@ impl<'dom> LayoutDom<'dom, Document> {
         let id_map = unsafe { self.unsafe_get().id_map.borrow_for_layout() };
         let matching_elements = id_map.get(id).map(Vec::as_slice).unwrap_or_default();
         unsafe { LayoutDom::to_layout_slice(matching_elements) }
+    }
+
+    pub(crate) fn drain_pending_accessibility_damage(
+        self,
+    ) -> Option<FxHashMap<OpaqueNode, AccessibilityDamage>> {
+        unsafe {
+            self.unsafe_get()
+                .accessibility_data
+                .borrow_mut_for_layout()
+                .drain_pending_accessibility_damage_for_layout()
+        }
     }
 }
 
