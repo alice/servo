@@ -904,7 +904,7 @@ impl Node {
                     .unwrap()
                     .dirty(NodeDamage::ContentOrHeritage);
 
-                self.add_pending_accessibility_damage(AccessibilityDamage::TEXT);
+                self.add_pending_accessibility_damage(AccessibilityDamage::SELF);
             },
             NodeTypeId::Element(_) => self.downcast::<Element>().unwrap().restyle(damage),
             NodeTypeId::DocumentFragment(DocumentFragmentTypeId::ShadowRoot) => self

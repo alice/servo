@@ -940,18 +940,25 @@ impl LayoutThread {
         };
 
         let accessibility_tree = &mut *accessibility_tree;
-        let damage = document.drain_pending_accessibility_damage();
-        if let Some(tree_update) = accessibility_tree.update_tree(root_element, &damage) {
-            // FIXME: Handle send error. Could have a method on accessibility tree to
-            // finalise after sending, removing accessibility damage? On fail, retain damage
-            // for next reflow, as well as retaining document.needs_accessibility_update.
-            let _ = self
-                .embedder_chan
-                .send(EmbedderMsg::AccessibilityTreeUpdate(
-                    self.webview_id,
-                    tree_update,
-                    accessibility_tree.epoch(),
-                ));
+        unsafe {
+            let damage = document
+                .drain_pending_accessibility_damage()
+                .into_iter()
+                .map(|(address, damage)| (ServoLayoutNode::new(&address), damage))
+                .collect();
+
+            if let Some(tree_update) = accessibility_tree.update_tree(root_element, &damage) {
+                // FIXME: Handle send error. Could have a method on accessibility tree to
+                // finalise after sending, removing accessibility damage? On fail, retain damage
+                // for next reflow, as well as retaining document.needs_accessibility_update.
+                let _ = self
+                    .embedder_chan
+                    .send(EmbedderMsg::AccessibilityTreeUpdate(
+                        self.webview_id,
+                        tree_update,
+                        accessibility_tree.epoch(),
+                    ));
+            }
         }
         self.needs_accessibility_update.set(false);
         true

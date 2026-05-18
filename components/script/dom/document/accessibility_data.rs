@@ -4,12 +4,11 @@
 
 use embedder_traits::UntrustedNodeAddress;
 use js::context::NoGC;
-use layout_api::AccessibilityDamage;
+use layout_api::{AccessibilityDamage, TrustedNodeAddress};
 use rustc_hash::{FxHashMap, FxHashSet};
 use script_bindings::cell::DomRefCell;
 use script_bindings::root::DomRoot;
 use servo_config::pref;
-use style::dom::OpaqueNode;
 
 use crate::dom::bindings::trace::NoTrace;
 use crate::dom::{Node, from_untrusted_node_address};
@@ -22,7 +21,7 @@ pub(crate) struct AccessibilityData {
     rooted_nodes: FxHashSet<DomRoot<Node>>,
 
     /// TODO
-    pending_damage: DomRefCell<NoTrace<FxHashMap<OpaqueNode, AccessibilityDamage>>>,
+    pending_damage: NoTrace<DomRefCell<FxHashMap<TrustedNodeAddress, AccessibilityDamage>>>,
 }
 
 impl AccessibilityData {
@@ -76,23 +75,18 @@ impl AccessibilityData {
     ) {
         assert!(pref!(accessibility_enabled));
 
-        let map = &mut self.pending_damage.borrow_mut().0;
-        let pending_damage = map.entry(node.to_opaque()).or_default();
+        let map = &mut self.pending_damage.0.borrow_mut();
+        let pending_damage = map.entry(node.to_trusted_node_address()).or_default();
         *pending_damage |= damage;
     }
 
     #[expect(unsafe_code)]
     pub(crate) fn drain_pending_accessibility_damage_for_layout(
         &mut self,
-    ) -> Option<FxHashMap<OpaqueNode, AccessibilityDamage>> {
+    ) -> Vec<(TrustedNodeAddress, AccessibilityDamage)> {
         unsafe {
-            let pending_damage = &mut self.pending_damage.borrow_mut_for_layout().0;
-            let mut map: FxHashMap<OpaqueNode, AccessibilityDamage> = Default::default();
-            // TODO: surely we can do better than this :(
-            let _ = pending_damage
-                .drain()
-                .map(|(opaque_node, damage)| map.insert(opaque_node, damage));
-            Some(map)
+            let pending_damage = &mut self.pending_damage.0.borrow_mut_for_layout();
+            pending_damage.drain().collect()
         }
     }
 }

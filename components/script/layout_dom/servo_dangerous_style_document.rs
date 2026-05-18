@@ -4,10 +4,9 @@
 
 #![deny(missing_docs)]
 
-use layout_api::{AccessibilityDamage, DangerousStyleElement};
-use rustc_hash::FxHashMap;
+use layout_api::{AccessibilityDamage, DangerousStyleElement, TrustedNodeAddress};
 use selectors::matching::QuirksMode;
-use style::dom::{OpaqueNode, TDocument, TNode};
+use style::dom::{TDocument, TNode};
 use style::shared_lock::{
     SharedRwLock as StyleSharedRwLock, SharedRwLockReadGuard as StyleSharedRwLockReadGuard,
 };
@@ -101,9 +100,10 @@ impl<'dom> ServoDangerousStyleDocument<'dom> {
     }
 
     /// TODO
-    pub fn drain_pending_accessibility_damage(&self) -> FxHashMap<OpaqueNode, AccessibilityDamage> {
+    pub fn drain_pending_accessibility_damage(
+        &self,
+    ) -> Vec<(TrustedNodeAddress, AccessibilityDamage)> {
         self.document
-            .drain_pending_accessibility_damage()
-            .unwrap_or_default()
+            .drain_pending_accessibility_damage_for_layout()
     }
 }

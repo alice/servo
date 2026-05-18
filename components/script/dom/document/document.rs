@@ -64,7 +64,6 @@ use servo_media::{ClientContextId, ServoMedia};
 use servo_url::{ImmutableOrigin, MutableOrigin, ServoUrl};
 use style::attr::AttrValue;
 use style::context::QuirksMode;
-use style::dom::OpaqueNode;
 use style::invalidation::element::restyle_hints::RestyleHint;
 use style::selector_parser::Snapshot;
 use style::shared_lock::{SharedRwLock, SharedRwLockReadGuard};
@@ -3394,7 +3393,7 @@ impl Document {
     #[expect(unsafe_code)]
     pub(crate) fn drain_pending_accessibility_damage_for_layout(
         &self,
-    ) -> Option<FxHashMap<OpaqueNode, AccessibilityDamage>> {
+    ) -> Vec<(TrustedNodeAddress, AccessibilityDamage)> {
         unsafe {
             let accessibility_data = self.accessibility_data.borrow_mut_for_layout();
             accessibility_data.drain_pending_accessibility_damage_for_layout()
@@ -3445,9 +3444,9 @@ impl<'dom> LayoutDom<'dom, Document> {
         unsafe { LayoutDom::to_layout_slice(matching_elements) }
     }
 
-    pub(crate) fn drain_pending_accessibility_damage(
+    pub(crate) fn drain_pending_accessibility_damage_for_layout(
         self,
-    ) -> Option<FxHashMap<OpaqueNode, AccessibilityDamage>> {
+    ) -> Vec<(TrustedNodeAddress, AccessibilityDamage)> {
         unsafe {
             self.unsafe_get()
                 .accessibility_data
