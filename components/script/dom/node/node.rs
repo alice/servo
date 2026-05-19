@@ -1574,6 +1574,9 @@ impl Node {
         });
         MutationObserver::queue_a_mutation_record(new_parent, mutation);
 
+        old_parent.add_pending_accessibility_damage(AccessibilityDamage::CHILDREN);
+        new_parent.add_pending_accessibility_damage(AccessibilityDamage::CHILDREN);
+
         Ok(())
     }
 
