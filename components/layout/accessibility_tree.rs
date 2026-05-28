@@ -574,7 +574,7 @@ impl AccessibilityUpdate {
                     if let Some(opaque_node) = node.borrow().opaque_node {
                         tree.recently_removed_opaque_nodes.push(opaque_node);
                     }
-                };
+                }
             }
         }
 
