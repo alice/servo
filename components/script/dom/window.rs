@@ -2719,7 +2719,9 @@ impl Window {
 
         document.update_animations_post_reflow();
 
-        document.accessibility_data_mut().unroot_all_removed_nodes();
+        document.accessibility_data_mut().unroot_all_removed_nodes(
+            reflow_result.removed_nodes_for_accessibility_integrity_check,
+        );
 
         (
             reflow_result.reflow_phases_run,
