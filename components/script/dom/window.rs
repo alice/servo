@@ -2724,9 +2724,7 @@ impl Window {
         {
             document
                 .accessibility_data_mut()
-                .unroot_all_removed_nodes_with_integrity_check(
-                    removed_nodes_for_integrity_check,
-                );
+                .unroot_all_removed_nodes_with_integrity_check(removed_nodes_for_integrity_check);
         } else {
             document.accessibility_data_mut().unroot_all_removed_nodes();
         }
