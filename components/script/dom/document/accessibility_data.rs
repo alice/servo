@@ -63,6 +63,7 @@ impl AccessibilityData {
     /// while also asserting that the nodes which were removed from the accessibility tree:
     /// - were also removed from the document, and
     /// - match the nodes which were rooted here after being removed from the tree.
+    ///
     /// This should be called instead of [`Self::unroot_all_removed_nodes()`] at the end of reflow
     /// if [`ReflowResult::removed_nodes_for_accessibility_integrity_check`] is not `None`.
     #[expect(unsafe_code)]
