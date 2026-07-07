@@ -968,6 +968,7 @@ impl LayoutThread {
         &self,
         root_element: &ServoLayoutNode,
         reflow_request: &mut ReflowRequest,
+        reflow_statistics: &mut ReflowStatistics,
     ) -> bool {
         if !self.needs_accessibility_update() {
             return false;
@@ -981,7 +982,8 @@ impl LayoutThread {
         let rooted_nodes =
             std::mem::take(&mut reflow_request.rooted_nodes_for_accessibility_integrity_check);
 
-        if let Some(tree_update) = accessibility_tree.update_tree(root_element, rooted_nodes) {
+        let (tree_update, counters) = accessibility_tree.update_tree(root_element, rooted_nodes);
+        if let Some(tree_update) = tree_update {
             // FIXME: Handle send error. Could have a method on accessibility tree to
             // finalise after sending, removing accessibility damage? On fail, retain damage
             // for next reflow, as well as retaining document.needs_accessibility_update.
@@ -993,6 +995,12 @@ impl LayoutThread {
                     accessibility_tree.embedder_epoch(),
                 ));
         }
+
+        reflow_statistics.accessibility_nodes_updated_from_dom =
+            counters.update_node_and_descendants_from_dom_node;
+        reflow_statistics.accessibility_nodes_updated_from_tree = counters.update_node_local;
+        reflow_statistics.accessibility_nodes_in_tree_update = counters.nodes_in_tree_update;
+
         self.needs_accessibility_update.set(false);
         true
     }
@@ -1051,7 +1059,11 @@ impl LayoutThread {
         if self.handle_update_scroll_node_request(&reflow_request) {
             reflow_phases_run.insert(ReflowPhasesRun::UpdatedScrollNodeOffset);
         }
-        if self.handle_accessibility_tree_update(&root_element.as_node(), &mut reflow_request) {
+        if self.handle_accessibility_tree_update(
+            &root_element.as_node(),
+            &mut reflow_request,
+            &mut reflow_statistics,
+        ) {
             reflow_phases_run.insert(ReflowPhasesRun::UpdatedAccessibilityTree);
         }
 

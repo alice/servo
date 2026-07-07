@@ -48,6 +48,14 @@ struct AccessibilityUpdate {
     /// `AccessibilityData`. Only set if `pref::expensive_accessibility_test_assertions_enabled`
     /// is set.
     rooted_nodes: Option<FxHashSet<OpaqueNode>>,
+    counters: UpdateCounters,
+}
+
+#[derive(Debug, Default)]
+pub struct UpdateCounters {
+    pub update_node_and_descendants_from_dom_node: u32,
+    pub update_node_local: u32,
+    pub nodes_in_tree_update: u32,
 }
 
 struct AccessibilityNode {
@@ -159,7 +167,7 @@ impl AccessibilityTree {
         &mut self,
         root_dom_node: &ServoLayoutNode<'_>,
         rooted_nodes: Option<FxHashSet<OpaqueNode>>,
-    ) -> Option<accesskit::TreeUpdate> {
+    ) -> (Option<accesskit::TreeUpdate>, UpdateCounters) {
         let mut update = AccessibilityUpdate::new(rooted_nodes);
         let (_, root_node) = self.get_or_create_node(root_dom_node, &mut update);
         self.root_node = Some(root_node.clone());
@@ -178,6 +186,8 @@ impl AccessibilityTree {
         dom_node: &ServoLayoutNode<'_>,
         update: &mut AccessibilityUpdate,
     ) -> LocalAccessibilityDamage {
+        update.counters.update_node_and_descendants_from_dom_node += 1;
+
         let weak_node = node.downgrade();
         let mut node = node.borrow_mut();
         let mut damage = LocalAccessibilityDamage::empty();
@@ -186,7 +196,7 @@ impl AccessibilityTree {
         damage.insert(node.update_node_from_dom_node(dom_node));
         damage.insert(node.update_descendants_from_dom_node(weak_node, dom_node, self, update));
 
-        damage.insert(node.update_node_local(damage));
+        damage.insert(node.update_node_local(damage, update));
 
         if node.updated {
             update.add(&mut node);
@@ -478,7 +488,13 @@ impl AccessibilityNode {
     /// For example, if there were nodes added or removed in its subtree, its computed text may have
     /// changed, so that will be recomputed here.
     /// If any changes are made, add this node to the given [`AccessibilityUpdate`].
-    fn update_node_local(&mut self, damage: LocalAccessibilityDamage) -> LocalAccessibilityDamage {
+    fn update_node_local(
+        &mut self,
+        damage: LocalAccessibilityDamage,
+        update: &mut AccessibilityUpdate,
+    ) -> LocalAccessibilityDamage {
+        update.counters.update_node_local += 1;
+
         let mut new_damage = LocalAccessibilityDamage::empty();
         if damage.contains(LocalAccessibilityDamage::SUBTREE_CHANGED) ||
             damage.contains(LocalAccessibilityDamage::ROLE_CHANGED)
@@ -695,6 +711,7 @@ impl AccessibilityUpdate {
             changed_nodes: FxHashSet::default(),
             tree_changes: FxHashMap::default(),
             rooted_nodes,
+            counters: UpdateCounters::default(),
         }
     }
 
@@ -733,7 +750,10 @@ impl AccessibilityUpdate {
     /// been any changes to `tree`.
     /// This will pass `self` into [`AccessibilityTree::remove_stale_nodes()`] to consume
     /// [`Self::tree_changes`].
-    fn finalize(mut self, tree: &mut AccessibilityTree) -> Option<accesskit::TreeUpdate> {
+    fn finalize(
+        mut self,
+        tree: &mut AccessibilityTree,
+    ) -> (Option<accesskit::TreeUpdate>, UpdateCounters) {
         let root_node_id = tree
             .root_node
             .clone()
@@ -743,8 +763,11 @@ impl AccessibilityUpdate {
 
         if self.changed_nodes.is_empty() {
             assert!(self.tree_changes.is_empty());
-            return None;
+            return (None, self.counters);
         }
+
+        self.counters.nodes_in_tree_update =
+            self.changed_nodes.len().try_into().unwrap_or_default();
 
         let accesskit_tree = accesskit::Tree::new(root_node_id);
         let tree_update = accesskit::TreeUpdate {
@@ -762,9 +785,11 @@ impl AccessibilityUpdate {
             tree_id: tree.tree_id,
         };
 
+        let counters = std::mem::take(&mut self.counters);
+
         tree.remove_stale_nodes(self);
 
-        Some(tree_update)
+        (Some(tree_update), counters)
     }
 }
 

@@ -11379,6 +11379,29 @@
    }
   },
   "testharness": {
+   "accessibility-tree": {
+    "accessibility-update-basic-mutation.html": [
+     "5fe7ee29258dd730ec8bf250dfa333eef89aafc9",
+     [
+      null,
+      {}
+     ]
+    ],
+    "accessibility-update-mutation-move-nodes.html": [
+     "1cfd9eee805f27838ea3454139d23f970f479fdf",
+     [
+      null,
+      {}
+     ]
+    ],
+    "accessibility-update-text-change.html": [
+     "026e1ef6366435ddf5fdc53cb5fe6678c21f1ddb",
+     [
+      null,
+      {}
+     ]
+    ]
+   },
    "bluetooth": {
     "advertisingEvent": {
      "watchAdvertisements-succeeds.https.html": [
