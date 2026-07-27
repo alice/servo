@@ -7,9 +7,11 @@ use std::iter::repeat;
 use std::sync::atomic::AtomicU64;
 use std::sync::{LazyLock, atomic};
 
-use accesskit::{NodeId, Role};
+use accesskit::{ActionRequest, NodeId, Role};
 use bitflags::bitflags;
-use layout_api::{AccessibilityDamage, LayoutElement, LayoutNode, LayoutNodeType};
+use layout_api::{
+    AccessibilityActionRequest, AccessibilityDamage, LayoutElement, LayoutNode, LayoutNodeType,
+};
 use log::trace;
 use rustc_hash::{FxHashMap, FxHashSet};
 use script::layout_dom::ServoLayoutNode;
@@ -125,6 +127,10 @@ pub struct AccessibilityTree {
     /// Sent to the embedder alongside each [`accesskit::TreeUpdate`], so that the embedder can
     /// drop updates from documents which have been navigated away from.
     embedder_epoch: Epoch,
+    /// Pending actions which have been processed from [`accesskit::ActionRequest`]s to retrieve the
+    /// [`OpaqueNode`] for the corresponding DOM node.
+    /// Any [`OpaqueNode`] in this list
+    pending_actions: Vec<AccessibilityActionRequest>,
     /// Debug options, copied from configuration to this `AccessibilityTree` in order
     /// to avoid having to constantly access the thread-safe global options.
     debug: DiagnosticsLogging,
@@ -173,6 +179,7 @@ impl AccessibilityTree {
             tree_id,
             root_node: None,
             embedder_epoch,
+            pending_actions: vec![],
             debug: opts::get().debug.clone(),
         }
     }
@@ -183,6 +190,7 @@ impl AccessibilityTree {
         &mut self,
         root_dom_node: &ServoLayoutNode<'dom>,
         mut damage_from_dom: VecDeque<(ServoLayoutNode<'dom>, AccessibilityDamage)>,
+        action_requests: Vec<ActionRequest>,
         rooted_nodes: Option<FxHashSet<OpaqueNode>>,
     ) -> (Option<accesskit::TreeUpdate>, UpdateCounters) {
         let mut update = AccessibilityUpdate::new(rooted_nodes);
@@ -191,7 +199,7 @@ impl AccessibilityTree {
 
         self.apply_changes_from_dom_tree(damage_from_dom, &mut update);
 
-        update.finalize(self)
+        update.finalize(self, action_requests)
     }
 
     /// Get the node corresponding to the root DOM node, and set it as this tree's root. If the root
@@ -468,6 +476,13 @@ impl AccessibilityTree {
 
     pub(crate) fn embedder_epoch(&self) -> Epoch {
         self.embedder_epoch
+    }
+
+    pub(crate) fn take_pending_actions(&mut self) -> Option<Vec<AccessibilityActionRequest>> {
+        if self.pending_actions.is_empty() {
+            return None;
+        }
+        Some(std::mem::take(&mut self.pending_actions))
     }
 
     /// Assert that the tree is a tree without any dangling references or orphaned nodes.
@@ -1068,6 +1083,7 @@ impl AccessibilityUpdate {
     fn finalize(
         mut self,
         tree: &mut AccessibilityTree,
+        action_requests: Vec<ActionRequest>,
     ) -> (Option<accesskit::TreeUpdate>, UpdateCounters) {
         let root_node_id = tree
             .root_node
@@ -1076,33 +1092,50 @@ impl AccessibilityUpdate {
             .borrow()
             .id;
 
-        if self.changed_nodes.is_empty() {
+        let mut tree_update = None;
+        let mut counters = std::mem::take(&mut self.counters);
+        if !self.changed_nodes.is_empty() {
+            let changed_nodes = std::mem::take(&mut self.changed_nodes);
+
+            tree.drop_removed_nodes(self);
+
+            let changed_nodes: Vec<_> = changed_nodes
+                .into_iter()
+                .filter_map(|id| Some((id, tree.node_for_id(id)?.borrow().accesskit_node.clone())))
+                .collect();
+
+            counters.nodes_in_tree_update = changed_nodes.len().try_into().unwrap_or_default();
+
+            let accesskit_tree = accesskit::Tree::new(root_node_id);
+            tree_update = Some(accesskit::TreeUpdate {
+                // Filter out any nodes which were both changed and removed.
+                nodes: changed_nodes,
+                tree: Some(accesskit_tree),
+                focus: NodeId(1),
+                tree_id: tree.tree_id,
+            });
+        } else {
             assert!(self.tree_changes.is_empty());
-            return (None, self.counters);
         }
 
-        let changed_nodes = std::mem::take(&mut self.changed_nodes);
-        let mut counters = std::mem::take(&mut self.counters);
+        for action in action_requests {
+            assert_eq!(
+                action.target_tree, tree.tree_id,
+                "Got action with wrong tree ID: {action:?}"
+            );
+            let Some(&opaque) = tree.id_to_opaque_node.get(&action.target_node) else {
+                // If the action is on a node which has been dropped, silently drop the action.
+                continue;
+            };
+            let dom_action_request = AccessibilityActionRequest {
+                action: action.action,
+                target: opaque,
+                data: action.data,
+            };
+            tree.pending_actions.push(dom_action_request);
+        }
 
-        tree.drop_removed_nodes(self);
-
-        let changed_nodes: Vec<_> = changed_nodes
-            .into_iter()
-            .filter_map(|id| Some((id, tree.node_for_id(id)?.borrow().accesskit_node.clone())))
-            .collect();
-
-        counters.nodes_in_tree_update = changed_nodes.len().try_into().unwrap_or_default();
-
-        let accesskit_tree = accesskit::Tree::new(root_node_id);
-        let tree_update = accesskit::TreeUpdate {
-            // Filter out any nodes which were both changed and removed.
-            nodes: changed_nodes,
-            tree: Some(accesskit_tree),
-            focus: NodeId(1),
-            tree_id: tree.tree_id,
-        };
-
-        (Some(tree_update), counters)
+        (tree_update, counters)
     }
 }
 
@@ -1179,7 +1212,7 @@ fn test_accessibility_update_add_some_nodes_twice() {
         update.add(&mut node_3);
     }
 
-    let (tree_update, _) = update.finalize(&mut tree);
+    let (tree_update, _) = update.finalize(&mut tree, vec![]);
     let mut tree_update = tree_update.expect("finalize should produce a tree update");
     tree_update.nodes.sort_by_key(|(node_id, _node)| *node_id);
     assert_eq!(
@@ -1203,6 +1236,8 @@ fn test_accessibility_update_add_some_nodes_twice() {
 
 static HTML_ELEMENT_ROLE_MAPPINGS: LazyLock<FxHashMap<LocalName, Role>> = LazyLock::new(|| {
     [
+        // FIXME: only a with href!
+        (local_name!("a"), Role::Link),
         (local_name!("article"), Role::Article),
         (local_name!("aside"), Role::Complementary),
         (local_name!("body"), Role::RootWebArea),
@@ -1225,4 +1260,4 @@ static HTML_ELEMENT_ROLE_MAPPINGS: LazyLock<FxHashMap<LocalName, Role>> = LazyLo
 
 /// <https://w3c.github.io/aria/#namefromcontent>
 static NAME_FROM_CONTENTS_ROLES: LazyLock<FxHashSet<Role>> =
-    LazyLock::new(|| [(Role::Heading)].into_iter().collect());
+    LazyLock::new(|| [(Role::Heading), (Role::Link)].into_iter().collect());

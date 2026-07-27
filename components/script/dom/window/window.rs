@@ -14,6 +14,7 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use accesskit::Action;
 use app_units::Au;
 use base64::Engine;
 use content_security_policy::Violation;
@@ -45,11 +46,12 @@ use js::rust::{
     MutableHandleValue,
 };
 use layout_api::{
-    AxesOverflow, BoxAreaType, CSSPixelRectVec, ElementsFromPointResult, FragmentType, Layout,
-    LayoutImageDestination, PendingImage, PendingImageState, PendingRasterizationImage,
-    PhysicalSides, QueryMsg, ReflowGoal, ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle,
-    ReflowStatistics, RestyleReason, ScrollContainerQueryFlags, ScrollContainerResponse,
-    TrustedNodeAddress, combine_id_with_fragment_type,
+    AccessibilityActionRequest, AxesOverflow, BoxAreaType, CSSPixelRectVec,
+    ElementsFromPointResult, FragmentType, Layout, LayoutImageDestination, PendingImage,
+    PendingImageState, PendingRasterizationImage, PhysicalSides, QueryMsg, ReflowGoal,
+    ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowStatistics, RestyleReason,
+    ScrollContainerQueryFlags, ScrollContainerResponse, TrustedNodeAddress,
+    combine_id_with_fragment_type,
 };
 use malloc_size_of::MallocSizeOf;
 use media::WindowGLContext;
@@ -2740,12 +2742,18 @@ impl Window {
             }
             let accessibility_damage = accessibility_data.drain_pending_accessibility_damage();
 
+            let mut pending_accessibility_actions = None;
             layout.update_accessibility_tree(
                 document.upcast::<Node>().to_trusted_node_address(),
                 rooted_nodes,
                 accessibility_damage,
+                &mut pending_accessibility_actions,
                 &mut reflow_result.reflow_statistics,
             );
+
+            if let Some(pending_accessibility_actions) = pending_accessibility_actions {
+                self.handle_accessibility_actions(pending_accessibility_actions, cx);
+            }
         }
 
         debug!("script: layout complete");
@@ -3796,6 +3804,21 @@ impl Window {
             let svg = node.downcast::<SVGSVGElement>().unwrap();
             svg.serialize_and_cache_subtree(cx);
             node.dirty(NodeDamage::Other);
+        }
+    }
+
+    #[expect(unsafe_code)]
+    fn handle_accessibility_actions(
+        &self,
+        actions: Vec<AccessibilityActionRequest>,
+        cx: &mut JSContext,
+    ) {
+        for action_request in actions {
+            let target_opaque = action_request.target;
+            let target = unsafe { Node::from_untrusted_node_address(target_opaque.into()) };
+            if action_request.action == Action::Click {
+                target.fire_synthetic_pointer_event_not_trusted(cx, atom!("click"));
+            }
         }
     }
 

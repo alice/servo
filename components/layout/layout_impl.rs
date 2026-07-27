@@ -11,6 +11,7 @@ use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 
+use accesskit::ActionRequest;
 use app_units::Au;
 use bitflags::bitflags;
 use embedder_traits::{
@@ -21,12 +22,12 @@ use fonts::{FontContext, FontContextWebFontMethods};
 use fonts_traits::{StylesheetWebFontLoadFinishedCallback, WebFontSetDifference};
 use icu_locid::subtags::Language;
 use layout_api::{
-    AccessibilityDamage, AxesOverflow, BoxAreaType, CSSPixelRectVec, DangerousStyleNode,
-    IFrameSizes, Layout, LayoutAccessibilityDamage, LayoutConfig, LayoutDamage, LayoutElement,
-    LayoutFactory, LayoutNode, NodeRenderingType, OffsetParentResponse, PhysicalSides, QueryMsg,
-    ReflowGoal, ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowResult,
-    ReflowStatistics, ScrollContainerQueryFlags, ScrollContainerResponse, TrustedNodeAddress,
-    with_layout_state,
+    AccessibilityActionRequest, AccessibilityDamage, AxesOverflow, BoxAreaType, CSSPixelRectVec,
+    DangerousStyleNode, IFrameSizes, Layout, LayoutAccessibilityDamage, LayoutConfig, LayoutDamage,
+    LayoutElement, LayoutFactory, LayoutNode, NodeRenderingType, OffsetParentResponse,
+    PhysicalSides, QueryMsg, ReflowGoal, ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle,
+    ReflowResult, ReflowStatistics, ScrollContainerQueryFlags, ScrollContainerResponse,
+    TrustedNodeAddress, with_layout_state,
 };
 use log::{debug, warn};
 use malloc_size_of::{MallocConditionalSizeOf, MallocSizeOf, MallocSizeOfOps};
@@ -228,6 +229,13 @@ pub struct LayoutThread {
 
     /// See [Layout::needs_accessibility_update()].
     needs_accessibility_update: Cell<bool>,
+
+    /// Accessibility action requests which have arrived from assistive technology since the last
+    /// reflow, in chronological order.
+    /// This will be `None` unless [`Self::accessibility_active`] is true.
+    /// During reflow, these actions are drained and sent to the accessibility tree.
+    /// A reflow will be forced if this vec is non-empty.
+    pending_accessibility_actions: RefCell<Option<Vec<ActionRequest>>>,
 
     /// A callback to run whenever a web font from a `@font-face` rule finishes loading.
     web_font_finished_loading_callback: StylesheetWebFontLoadFinishedCallback,
@@ -732,15 +740,20 @@ impl Layout for LayoutThread {
         self.accessibility_active.set(active);
         if !active {
             self.accessibility_tree.replace(None);
+            self.pending_accessibility_actions.replace(None);
             return;
         }
 
         self.set_needs_accessibility_update();
         let mut accessibility_tree = self.accessibility_tree.borrow_mut();
-        if accessibility_tree.is_some() {
-            return;
+        if accessibility_tree.is_none() {
+            *accessibility_tree = Some(AccessibilityTree::new(self.id.into(), epoch));
         }
-        *accessibility_tree = Some(AccessibilityTree::new(self.id.into(), epoch));
+
+        let mut pending_accessibility_actions = self.pending_accessibility_actions.borrow_mut();
+        if pending_accessibility_actions.is_none() {
+            *pending_accessibility_actions = Some(vec![]);
+        }
     }
 
     fn accessibility_active(&self) -> bool {
@@ -748,7 +761,17 @@ impl Layout for LayoutThread {
     }
 
     fn needs_accessibility_update(&self) -> bool {
-        self.needs_accessibility_update.get()
+        if self.needs_accessibility_update.get() {
+            return true;
+        }
+        if let Some(pending_accessibility_actions) =
+            self.pending_accessibility_actions.borrow().as_ref() &&
+            !pending_accessibility_actions.is_empty()
+        {
+            return true;
+        }
+
+        false
     }
 
     fn set_needs_accessibility_update(&self) {
@@ -760,6 +783,7 @@ impl Layout for LayoutThread {
         document: TrustedNodeAddress,
         rooted_nodes: Option<FxHashSet<OpaqueNode>>,
         accessibility_damage: Vec<(TrustedNodeAddress, AccessibilityDamage)>,
+        pending_accessibility_actions: &mut Option<Vec<AccessibilityActionRequest>>,
         reflow_statistics: &mut ReflowStatistics,
     ) {
         with_layout_state(|| {
@@ -767,9 +791,17 @@ impl Layout for LayoutThread {
                 document,
                 rooted_nodes,
                 accessibility_damage,
+                pending_accessibility_actions,
                 reflow_statistics,
             )
         })
+    }
+
+    fn handle_accessibility_action(&self, action_request: ActionRequest) {
+        self.pending_accessibility_actions
+            .borrow_mut()
+            .get_or_insert_default()
+            .push(action_request);
     }
 }
 
@@ -841,6 +873,7 @@ impl LayoutThread {
             accessibility_active: Cell::new(false),
             accessibility_tree: Default::default(),
             needs_accessibility_update: Cell::new(false),
+            pending_accessibility_actions: RefCell::new(None),
             web_font_finished_loading_callback: Arc::new(web_font_finished_loading_callback)
                 as StylesheetWebFontLoadFinishedCallback,
         }
@@ -943,6 +976,7 @@ impl LayoutThread {
         document: TrustedNodeAddress,
         rooted_nodes: Option<FxHashSet<OpaqueNode>>,
         accessibility_damage: Vec<(TrustedNodeAddress, AccessibilityDamage)>,
+        pending_accessibility_actions: &mut Option<Vec<AccessibilityActionRequest>>,
         reflow_statistics: &mut ReflowStatistics,
     ) {
         if !self.needs_accessibility_update() && accessibility_damage.is_empty() {
@@ -967,9 +1001,13 @@ impl LayoutThread {
             .map(|(address, damage)| unsafe { (ServoLayoutNode::new(&address), damage) })
             .collect();
 
+        let mut pending_action_requests = self.pending_accessibility_actions.borrow_mut();
+        let action_requests = std::mem::take(pending_action_requests.as_mut().expect("pending_accessibility_actions is initialized when set_accessibility_active() is called"));
+
         let (tree_update, counters) = accessibility_tree.update_tree(
             &root_element.as_node(),
             accessibility_damage,
+            action_requests,
             rooted_nodes,
         );
         if let Some(tree_update) = tree_update {
@@ -988,6 +1026,8 @@ impl LayoutThread {
         reflow_statistics.nodes_updated_from_dom = counters.nodes_updated_from_dom;
         reflow_statistics.nodes_updated_from_tree = counters.nodes_updated_from_tree;
         reflow_statistics.nodes_in_tree_update = counters.nodes_in_tree_update;
+
+        *pending_accessibility_actions = accessibility_tree.take_pending_actions();
 
         self.needs_accessibility_update.set(false);
     }

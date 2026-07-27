@@ -11,6 +11,7 @@
 
 use std::fmt;
 
+use accesskit::ActionRequest;
 use crossbeam_channel::RecvTimeoutError;
 use devtools_traits::ScriptToDevtoolsControlMsg;
 use embedder_traits::user_contents::{UserContentManagerId, UserContents};
@@ -333,6 +334,8 @@ pub enum ScriptThreadMessage {
     /// may be split across multiple script threads, and the pipelines in a script thread may belong
     /// to multiple webviews. So the simplest approach is to activate it for one pipeline at a time.
     SetAccessibilityActive(PipelineId, bool, Epoch),
+    /// Forward the given [`accesskit::ActionRequest`] to the given pipeline.
+    ForwardAccessibilityAction(PipelineId, ActionRequest),
     /// Force a garbage collection in this script thread.
     TriggerGarbageCollection,
 }

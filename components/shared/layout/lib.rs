@@ -22,6 +22,7 @@ use std::sync::atomic::AtomicIsize;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use accesskit::{Action, ActionData, ActionRequest};
 use app_units::Au;
 use atomic_refcell::AtomicRefCell;
 use background_hang_monitor_api::BackgroundHangMonitorRegister;
@@ -250,6 +251,13 @@ pub struct HTMLMediaData {
     pub metadata: Option<MediaMetadata>,
 }
 
+#[derive(Debug)]
+pub struct AccessibilityActionRequest {
+    pub action: Action,
+    pub target: OpaqueNode,
+    pub data: Option<ActionData>,
+}
+
 pub struct LayoutConfig {
     pub id: PipelineId,
     pub webview_id: WebViewId,
@@ -423,11 +431,15 @@ pub trait Layout {
     /// See [Self::needs_accessibility_update()].
     fn set_needs_accessibility_update(&self);
 
+    /// Handle an accessibility action.
+    fn handle_accessibility_action(&self, action_request: ActionRequest);
+
     fn update_accessibility_tree(
         &self,
         root_element: TrustedNodeAddress,
         rooted_nodes: Option<FxHashSet<OpaqueNode>>,
         accessibility_damage: Vec<(TrustedNodeAddress, AccessibilityDamage)>,
+        pending_accessibility_actions: &mut Option<Vec<AccessibilityActionRequest>>,
         reflow_statistics: &mut ReflowStatistics,
     );
 }

@@ -95,6 +95,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::{process, thread};
 
+use accesskit::{ActionRequest, TreeId};
 use background_hang_monitor_api::{
     BackgroundHangMonitorControlMsg, BackgroundHangMonitorRegister, HangMonitorAlert,
 };
@@ -1545,6 +1546,9 @@ where
             },
             EmbedderToConstellationMessage::SetAccessibilityActive(webview_id, active) => {
                 self.set_accessibility_active(webview_id, active);
+            },
+            EmbedderToConstellationMessage::ForwardAccessibilityAction(action_request) => {
+                self.forward_accessibility_action(action_request);
             },
         }
     }
@@ -3219,6 +3223,26 @@ where
             pipeline_id,
             ScriptThreadMessage::SetAccessibilityActive(pipeline_id, active, epoch),
             "Set accessibility active after closure",
+        );
+    }
+
+    fn forward_accessibility_action(&mut self, action_request: ActionRequest) {
+        let Some(pipeline_id) = self
+            .pipelines
+            .keys()
+            .copied()
+            .find(|&pipeline_id| TreeId::from(pipeline_id) == action_request.target_tree)
+        else {
+            warn!(
+                "Could not complete accessibility action {action_request:?}: no matching pipeline."
+            );
+            return;
+        };
+
+        self.send_message_to_pipeline(
+            pipeline_id,
+            ScriptThreadMessage::ForwardAccessibilityAction(pipeline_id, action_request),
+            "Action request {action_request:?} failed: sending message to pipeline failed.",
         );
     }
 

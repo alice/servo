@@ -15,6 +15,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::time::Duration;
 
+use accesskit::ActionRequest;
 use embedder_traits::user_contents::{
     UserContentManagerId, UserScript, UserScriptId, UserStyleSheet, UserStyleSheetId,
 };
@@ -117,6 +118,8 @@ pub enum EmbedderToConstellationMessage {
     UpdatePinchZoomInfos(PipelineId, PinchZoomInfos),
     /// Activate or deactivate accessibility features for the given `WebView`.
     SetAccessibilityActive(WebViewId, bool),
+    /// Forward an incoming [`accesskit::ActionRequest`] to the correct pipeline.
+    ForwardAccessibilityAction(ActionRequest),
 }
 
 pub enum UserContentManagerAction {
