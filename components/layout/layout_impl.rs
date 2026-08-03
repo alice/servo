@@ -783,6 +783,7 @@ impl Layout for LayoutThread {
         document: TrustedNodeAddress,
         rooted_nodes: Option<FxHashSet<OpaqueNode>>,
         accessibility_damage: Vec<(TrustedNodeAddress, AccessibilityDamage)>,
+        focused_element: Option<OpaqueNode>,
         pending_accessibility_actions: &mut Option<Vec<AccessibilityActionRequest>>,
         reflow_statistics: &mut ReflowStatistics,
     ) {
@@ -791,6 +792,7 @@ impl Layout for LayoutThread {
                 document,
                 rooted_nodes,
                 accessibility_damage,
+                focused_element,
                 pending_accessibility_actions,
                 reflow_statistics,
             )
@@ -976,6 +978,7 @@ impl LayoutThread {
         document: TrustedNodeAddress,
         rooted_nodes: Option<FxHashSet<OpaqueNode>>,
         accessibility_damage: Vec<(TrustedNodeAddress, AccessibilityDamage)>,
+        focused_element: Option<OpaqueNode>,
         pending_accessibility_actions: &mut Option<Vec<AccessibilityActionRequest>>,
         reflow_statistics: &mut ReflowStatistics,
     ) {
@@ -1007,6 +1010,7 @@ impl LayoutThread {
         let (tree_update, counters) = accessibility_tree.update_tree(
             &root_element.as_node(),
             accessibility_damage,
+            focused_element,
             action_requests,
             rooted_nodes,
         );

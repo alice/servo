@@ -2742,11 +2742,18 @@ impl Window {
             }
             let accessibility_damage = accessibility_data.drain_pending_accessibility_damage();
 
+            let focused_element = document
+                .focus_handler()
+                .focused_area()
+                .element()
+                .map(|element| element.upcast::<Node>().to_opaque());
+
             let mut pending_accessibility_actions = None;
             layout.update_accessibility_tree(
                 document.upcast::<Node>().to_trusted_node_address(),
                 rooted_nodes,
                 accessibility_damage,
+                focused_element,
                 &mut pending_accessibility_actions,
                 &mut reflow_result.reflow_statistics,
             );

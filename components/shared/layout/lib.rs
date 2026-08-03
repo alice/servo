@@ -439,6 +439,7 @@ pub trait Layout {
         root_element: TrustedNodeAddress,
         rooted_nodes: Option<FxHashSet<OpaqueNode>>,
         accessibility_damage: Vec<(TrustedNodeAddress, AccessibilityDamage)>,
+        focused_element: Option<OpaqueNode>,
         pending_accessibility_actions: &mut Option<Vec<AccessibilityActionRequest>>,
         reflow_statistics: &mut ReflowStatistics,
     );
