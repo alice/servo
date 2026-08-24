@@ -16,6 +16,7 @@ use net_traits::image_cache::Image;
 use pixels::ImageMetadata;
 use servo_arc::Arc;
 use servo_base::id::{BrowsingContextId, PipelineId};
+use servo_base::print_tree::PrintTree;
 use servo_base::text::{RangeAny, Utf32CodeUnits};
 use servo_url::ServoUrl;
 use style;
@@ -102,6 +103,10 @@ impl<'dom> ServoLayoutNode<'dom> {
     /// made public or exposed in the `LayoutNode` trait.
     pub(super) unsafe fn dangerous_previous_sibling(&self) -> Option<Self> {
         self.node.prev_sibling_ref().map(Into::into)
+    }
+
+    pub(super) fn print(&self, print_tree: &mut PrintTree) {
+        print_tree.add_item(format!("{self:?}"))
     }
 }
 

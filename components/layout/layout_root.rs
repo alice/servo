@@ -33,8 +33,9 @@ use crate::fragment_tree::Fragment;
 /// It's possible that upon laying out a layout root again, a new fixed position element
 /// has started to escape from the layout root. In that case, a full fragment tree layout
 /// becomes necessary to rebuild the fragment properly.
+#[derive(Debug)]
 pub(crate) struct LayoutRoot<'dom> {
-    node: ServoLayoutNode<'dom>,
+    pub(crate) node: ServoLayoutNode<'dom>,
 }
 
 impl<'dom> TryFrom<ServoLayoutNode<'dom>> for LayoutRoot<'dom> {

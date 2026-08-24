@@ -39,7 +39,7 @@ interface LayoutResult {
 [Exposed=Window, Pref="dom_servo_helpers_enabled"]
 interface AccessibilityUpdateResult {
     readonly attribute unsigned long nodesUpdatedFromDom;
+    readonly attribute unsigned long nodesUpdatedFromLayout;
     readonly attribute unsigned long nodesUpdatedFromTree;
-    readonly attribute unsigned long nodesUpdatedBounds;
     readonly attribute unsigned long nodesInTreeUpdate;
 };

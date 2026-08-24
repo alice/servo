@@ -13,6 +13,7 @@ use layout_api::{
     LayoutDataTrait, LayoutElement, LayoutNode, LayoutNodeType, PseudoElementChain, StyleData,
 };
 use servo_arc::Arc;
+use servo_base::print_tree::PrintTree;
 use style::attr::AttrValue;
 use style::context::SharedStyleContext;
 use style::data::{ElementDataMut, ElementDataRef};
@@ -39,7 +40,7 @@ impl fmt::Debug for LayoutDom<'_, Element> {
 }
 
 /// An implementation of [`LayoutElement`] for Servo's `script` crate.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct ServoLayoutElement<'dom> {
     /// The wrapped private DOM Element.
     pub(super) element: LayoutDom<'dom, Element>,
@@ -60,6 +61,37 @@ impl<'dom> ServoLayoutElement<'dom> {
     /// Note: This should *not* be exposed to layout as it allows access to an ancestor element.
     pub(super) fn shadow_root(&self) -> Option<ServoDangerousStyleShadowRoot<'dom>> {
         self.element.get_shadow_root_for_layout().map(Into::into)
+    }
+
+    /// Print this node's subtree.
+    pub fn print_subtree(&self) {
+        let mut print_tree = PrintTree::new("Layout DOM");
+        self.print(&mut print_tree);
+    }
+
+    fn print(&self, print_tree: &mut PrintTree) {
+        let node = self.as_node();
+        let mut children = node.flat_tree_children().peekable();
+        let style_data = self.style_data();
+        let mut is_display_none = false;
+        if let Some(style_data) = style_data {
+            is_display_none = style_data.element_data.borrow().styles.is_display_none();
+        }
+        if children.peek().is_none() || is_display_none {
+            print_tree.add_item(format!("{self:?}"));
+            return;
+        }
+
+        print_tree.new_level(format!("{self:?}"));
+
+        for child in children {
+            let Some(child_element) = child.as_element() else {
+                child.print(print_tree);
+                continue;
+            };
+            child_element.print(print_tree);
+        }
+        print_tree.end_level();
     }
 }
 
@@ -252,5 +284,21 @@ impl<'dom> LayoutElement<'dom> for ServoLayoutElement<'dom> {
 
     fn is_root(&self) -> bool {
         self.element.is_root()
+    }
+}
+
+impl fmt::Debug for ServoLayoutElement<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ServoLayoutElement {{ ")?;
+        write!(f, "element: {:?}", self.element)?;
+        write!(f, ", pseudo_element_chain: {:?}", self.pseudo_element_chain)?;
+        if let Some(style_data) = self.style_data() {
+            write!(
+                f,
+                ", damage: [{:b}]",
+                style_data.element_data.borrow().damage
+            )?;
+        };
+        write!(f, " }}")
     }
 }

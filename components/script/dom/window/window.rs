@@ -47,8 +47,8 @@ use js::rust::{
     MutableHandleValue,
 };
 use layout_api::{
-    AxesOverflow, BoxAreaType, CSSPixelRectVec, FragmentType, HitTestFlags, Layout,
-    LayoutImageDestination, PendingImage, PendingImageState, PendingRasterizationImage,
+    AccessibilityDamage, AxesOverflow, BoxAreaType, CSSPixelRectVec, FragmentType, HitTestFlags,
+    Layout, LayoutImageDestination, PendingImage, PendingImageState, PendingRasterizationImage,
     PhysicalSides, QueryMsg, ReflowGoal, ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle,
     ReflowStatistics, RestyleReason, ScrollContainerQueryFlags, ScrollContainerResponse,
     TrustedNodeAddress, combine_id_with_fragment_type,
@@ -2714,11 +2714,10 @@ impl Window {
 
         let document_context = self.web_font_context(cx.no_gc());
 
-        let mut rooted_nodes_for_accessibility_integrity_check = None;
-        let mut accessibility_damage = None;
-        if reflow_goal == ReflowGoal::UpdateTheRendering && self.layout().accessibility_active() {
-            rooted_nodes_for_accessibility_integrity_check =
-                document.rooted_nodes_for_accessibility_integrity_check();
+        let rooted_nodes_for_accessibility_integrity_check =
+            document.rooted_nodes_for_accessibility_integrity_check();
+        let mut accessibility_damage: Option<Vec<(TrustedNodeAddress, AccessibilityDamage)>> = None;
+        if self.layout().accessibility_active() {
             let mut accessibility_data = document.accessibility_data_mut();
             accessibility_damage = Some(accessibility_data.drain_pending_accessibility_damage());
         }
