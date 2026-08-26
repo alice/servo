@@ -57,6 +57,7 @@ use uuid::Uuid;
 use xml5ever::{local_name, serialize as xml_serialize};
 
 use crate::conversions::Convert;
+use crate::dom::accessibility_data::AccessibilityData;
 use crate::dom::attr::Attr;
 use crate::dom::bindings::codegen::Bindings::AttrBinding::AttrMethods;
 use crate::dom::bindings::codegen::Bindings::CSSStyleDeclarationBinding::CSSStyleDeclarationMethods;
@@ -178,6 +179,7 @@ pub struct Node {
     /// be used for incremental relayout and script queries.
     #[no_trace]
     layout_data: DomRefCell<Option<Box<GenericLayoutData>>>,
+    // accessibility_data: DomRefCell<Option<Box<AccessibilityData>>>,
 }
 
 impl fmt::Debug for Node {

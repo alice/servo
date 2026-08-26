@@ -13,14 +13,14 @@ use app_units::Au;
 use bitflags::bitflags;
 use euclid::Rect;
 use layout_api::{
-    AccessibilityDamage, BoxAreaType, LayoutElement, LayoutNode, LayoutNodeType,
+    AccessibilityDamage, BoxAreaType, Layout, LayoutElement, LayoutNode, LayoutNodeType,
     node_id_from_scroll_id,
 };
 use log::trace;
 use num_traits::ToPrimitive;
-use paint_api::display_list::SpatialTreeNodeInfo;
 use rustc_hash::{FxHashMap, FxHashSet};
 use script::layout_dom::{ServoLayoutElement, ServoLayoutNode};
+use script_bindings::root::Dom;
 use servo_base::Epoch;
 use servo_base::print_tree::PrintTree;
 use servo_config::opts::{self, DiagnosticsLogging, DiagnosticsLoggingOption};
@@ -32,11 +32,7 @@ use web_atoms::{LocalName, local_name, ns};
 use webrender_api::ExternalScrollId;
 use webrender_api::units::LayoutVector2D;
 
-use crate::ArcRefCell;
-use crate::cell::WeakRefCell;
-use crate::display_list::StackingContextTree;
-use crate::layout_impl::LayoutThread;
-use crate::query::process_box_area_request;
+use crate::cell::{ArcRefCell, WeakRefCell};
 
 bitflags! {
     /// Damage which was caused by changes to the accessibility tree. These changes can cause other
@@ -58,8 +54,7 @@ bitflags! {
 /// Everything the accessibility tree needs from layout in order to compute node bounds during an
 /// update.
 pub(super) struct AccessibilityContext<'update> {
-    pub(super) layout_thread: &'update LayoutThread,
-    pub(super) stacking_context_tree: &'update StackingContextTree,
+    layout: &'update dyn Layout,
 }
 
 /// All the [`AccessibilityDamage`] which comes from outside the accessibility tree itself.
@@ -141,7 +136,7 @@ struct AccessibilityNode {
     /// The [`OpaqueNode`] for the DOM node which corresponds to this accessibility node, if any.
     /// An accessibility node may not correspond to a DOM node if it corresponds to a
     /// pseudo-element, or in a test.
-    opaque_node: Option<OpaqueNode>,
+    node: Option<Dom<dyn LayoutNode>>,
     /// This node's scroll offset, if it is a scroll container which has scrolled. This is used to
     /// translate this node's children.
     scroll_offset: Option<LayoutVector2D>,
@@ -153,7 +148,6 @@ struct AccessibilityNode {
 ///
 /// [`accesskit`] only provides interchange types for tree updates and action requests, so we need
 /// to define our own representation for incremental tree building.
-#[derive(Debug)]
 pub struct AccessibilityTree {
     /// All nodes currently in the tree as of the most recent update. New nodes are added and stale
     /// nodes are pruned during [`AccessibilityTree::update_tree()`].
@@ -324,20 +318,10 @@ impl AccessibilityTree {
     /// [`Self::pending_scroll_updates`].
     /// This will clear any previous pending scroll updates, as the scroll tree contains all scroll
     /// information.
-    fn populate_pending_scroll_updates_from_scroll_tree(&mut self, context: &AccessibilityContext) {
-        let scroll_tree = &context.stacking_context_tree.paint_info.scroll_tree;
-        let scroll_updates = scroll_tree
-            .nodes
-            .iter()
-            .filter_map(|node| match node.info {
-                SpatialTreeNodeInfo::Scroll(ref info) => {
-                    let offset = info.offset;
-                    Some((info.external_id, offset))
-                },
-                _ => None,
-            })
-            .collect();
-        self.pending_scroll_updates = scroll_updates;
+    fn add_pending_scroll_updates_from_scroll_tree(&mut self, context: &AccessibilityContext) {
+        self.clear_pending_scroll_updates();
+        let scroll_updates = &context.layout.all_scroll_offsets();
+        self.add_pending_scroll_updates(&scroll_updates);
     }
 
     /// For each entry in [`Self::pending_scroll_updates`], set the scroll offset on the
@@ -737,7 +721,7 @@ impl AccessibilityNode {
             accesskit_node: accesskit::Node::new(role),
             parent_node: None,
             child_nodes: vec![],
-            opaque_node: None,
+            node: None,
             scroll_offset: None,
             dirty_state: DirtyState::empty(),
         }
@@ -1020,15 +1004,10 @@ impl AccessibilityNode {
         // carries the transform that composes them into AccessKit's coordinate space (see the
         // "Coordinates" section of
         // <https://docs.rs/accesskit/latest/accesskit/struct.Node.html>).
-        // TODO(#47166): This doesn't take any CSS transforms into account.
-        let bounds = process_box_area_request(
-            context.layout_thread,
-            context.stacking_context_tree,
-            *dom_node,
-            BoxAreaType::Border,
-            true, /* exclude_transform_and_inline */
-        )
-        .map(au_rect_to_accesskit_rect);
+        let bounds = context
+            .layout
+            .query_box_area(node, BoxAreaType::Border, true)
+            .map(au_rect_to_accesskit_rect);
 
         // For now only nodes with a box of their own get bounds; anything else, including
         // `display: none` content, gets its bounds cleared. That leaves two kinds of nodes

@@ -53,6 +53,7 @@ script = { workspace = true }
 script_traits = { workspace = true }
 selectors = { workspace = true }
 serde = { workspace = true }
+servo-accessibility = { workspace = true }
 servo-base = { workspace = true }
 servo-config = { workspace = true }
 servo-geometry = { workspace = true }

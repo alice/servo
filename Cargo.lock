@@ -8186,6 +8186,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "servo-accessibility"
+version = "0.5.0"
+dependencies = [
+ "accesskit",
+ "app_units",
+ "bitflags 2.13.1",
+ "euclid",
+ "log",
+ "num-traits",
+ "rustc-hash 2.1.3",
+ "servo-base",
+ "servo-config",
+ "servo-geometry",
+ "servo-layout-api",
+ "servo-paint-api",
+ "servo-script",
+ "servo-script-bindings",
+ "servo-tracing",
+ "stylo",
+ "stylo_atoms",
+ "stylo_traits",
+ "tracing",
+ "web_atoms",
+ "webrender_api",
+]
+
+[[package]]
 name = "servo-allocator"
 version = "0.5.0"
 dependencies = [
@@ -8703,6 +8730,7 @@ dependencies = [
  "rustc-hash 2.1.3",
  "selectors",
  "serde",
+ "servo-accessibility",
  "servo-base",
  "servo-config",
  "servo-embedder-traits",

@@ -346,6 +346,9 @@ pub trait Layout {
     /// not exist in the tree.
     fn scroll_offset(&self, id: ExternalScrollId) -> Option<LayoutVector2D>;
 
+    /// Get all of the scroll offsets which have been set.
+    fn all_scroll_offsets(&self) -> FxHashMap<ExternalScrollId, LayoutVector2D>;
+
     /// Returns true if this layout needs to produce a new display list for rendering updates.
     fn needs_new_display_list(&self) -> bool;
 

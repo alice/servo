@@ -11,6 +11,9 @@ use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 
+use accessibility::accessibility_tree::{
+    AccessibilityContext, AccessibilityDamageMap, AccessibilityTree,
+};
 use app_units::Au;
 use bitflags::bitflags;
 use embedder_traits::{
@@ -83,7 +86,6 @@ use url::Url;
 use webrender_api::ExternalScrollId;
 use webrender_api::units::{DevicePixel, LayoutVector2D};
 
-use crate::accessibility_tree::{AccessibilityContext, AccessibilityDamageMap, AccessibilityTree};
 use crate::context::{CachedImageOrError, ImageResolver, LayoutContext};
 use crate::display_list::{DisplayListBuilder, HitTest, PaintTimingHandler, StackingContextTree};
 use crate::dom::NodeExt;
@@ -729,6 +731,26 @@ impl Layout for LayoutThread {
             .borrow_mut()
             .as_mut()
             .and_then(|tree| tree.paint_info.scroll_tree.scroll_offset(id))
+    }
+
+    fn all_scroll_offsets(&self) -> Option<FxHashMap<ExternalScrollId, LayoutVector2D>> {
+        let Some(stacking_context_tree) = self.stacking_context_tree.borrow_mut().as_mut() else {
+            return None;
+        };
+        let scroll_offsets = stacking_context_tree
+            .paint_info
+            .scroll_tree
+            .nodes
+            .iter()
+            .filter_map(|n| match n.info {
+                SpatialTreeNodeInfo::Scroll(ref info) => {
+                    let offset = info.offset;
+                    Some((info.external_id, offset))
+                },
+                _ => None,
+            })
+            .collect();
+        Some(scroll_offsets)
     }
 
     fn needs_new_display_list(&self) -> bool {
