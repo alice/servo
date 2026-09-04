@@ -1339,7 +1339,7 @@ impl<'update> AccessibilityUpdate<'update> {
 
         counters.nodes_in_tree_update = changed_nodes.len().try_into().unwrap_or_default();
 
-        let accesskit_tree = accesskit::Tree::new(root_node_id);
+        let accesskit_tree = accesskit::TreeInfo::new(root_node_id);
         let tree_update = accesskit::TreeUpdate {
             nodes: changed_nodes,
             tree: Some(accesskit_tree),

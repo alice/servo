@@ -397,7 +397,7 @@ impl Gui {
                 let frame = egui::Frame::default()
                     .fill(ctx.style().visuals.window_fill)
                     .inner_margin(4.0);
-                Panel::top("toolbar").frame(frame).show_inside(ctx, |ui| {
+                Panel::top("toolbar").frame(frame).show(ctx, |ui| {
                     ui.allocate_ui_with_layout(
                         ui.available_size(),
                         egui::Layout::left_to_right(egui::Align::Center),
@@ -530,7 +530,7 @@ impl Gui {
                 });
 
                 // A simple Tab header strip
-                let outer = Panel::top("tabs").show_inside(ctx, |ui| {
+                let outer = Panel::top("tabs").show(ctx, |ui| {
                     // Add scroll for overflowing tabs
                     egui::ScrollArea::horizontal()
                         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)

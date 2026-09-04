@@ -29,8 +29,8 @@ publish = true
 rust-version = "1.88.0"
 
 [workspace.dependencies]
-accesskit = { version = "0.24.0", features = ["serde"] }
-accesskit_consumer = "0.35.0"
+accesskit = { version = "0.25.0", features = ["serde"] }
+accesskit_consumer = "0.39.0"
 aes = { version = "0.9", features = ["zeroize"] }
 aes-gcm = { version = "0.11", features = ["hazmat", "zeroize"] }
 aes-kw = { version = "0.3", features = ["zeroize"] }
@@ -79,10 +79,10 @@ dwrote = "0.11.5"
 ecdsa = "0.17"
 ed25519-dalek = { version = "3.0", features = ["alloc", "pkcs8", "rand_core", "zeroize"] }
 ed448-goldilocks = "=0.14.0-pre.15"
-egui = "0.34.3"
-egui-file-dialog = "0.13.0"
-egui-winit = { version = "0.34.3", default-features = false }
-egui_glow = "0.34.3"
+egui = "0.36.1"
+egui-file-dialog = "0.15.0"
+egui-winit = { version = "0.36.1", default-features = false }
+egui_glow = "0.36.1"
 elliptic-curve = { version = "0.14", features = ["pkcs8"] }
 encoding_rs = { version = "0.8", features = ["serde"] }
 env_filter = "0.1.4"
@@ -482,3 +482,5 @@ codegen-units = 1
 #
 # [patch."https://github.com/servo/<repository>"]
 # <crate> = { path = "/path/to/local/checkout" }
+egui = { git = "https://github.com/emilk/egui.git", rev = "75f00a0376e960394d51805e8528a68e4ac3d9f1" }
+egui-winit = { git = "https://github.com/emilk/egui.git", rev = "75f00a0376e960394d51805e8528a68e4ac3d9f1" }

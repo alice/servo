@@ -216,4 +216,6 @@ skip = [
 [sources.allow-org]
 github = [
     "servo",
+    # TODO: Remove once we don't need to patch egui to get the latest accesskit
+    "emilk",
 ]

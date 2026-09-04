@@ -9,8 +9,8 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-use accesskit::{NodeId, Rect, Role, TreeId, TreeUpdate};
-use accesskit_consumer::TreeChangeHandler;
+use accesskit::{NodeId, Rect, Role, TreeId, TreeInfo, TreeUpdate};
+use accesskit_consumer::{NodeRef, Tree, TreeChangeHandler};
 use euclid::Scale;
 use servo::{
     DiagnosticsLoggingOption, LoadStatus, Opts, Preferences, Scroll, WebView, WebViewBuilder,
@@ -24,15 +24,10 @@ use crate::common::{ServoTest, WebViewDelegateImpl, evaluate_javascript};
 struct NoOpChangeHandler;
 
 impl TreeChangeHandler for NoOpChangeHandler {
-    fn node_added(&mut self, _: &accesskit_consumer::Node) {}
-    fn node_updated(&mut self, _: &accesskit_consumer::Node, _: &accesskit_consumer::Node) {}
-    fn focus_moved(
-        &mut self,
-        _: Option<&accesskit_consumer::Node>,
-        _: Option<&accesskit_consumer::Node>,
-    ) {
-    }
-    fn node_removed(&mut self, _: &accesskit_consumer::Node) {}
+    fn node_added(&mut self, _: &NodeRef) {}
+    fn node_updated(&mut self, _: &NodeRef, _: &NodeRef) {}
+    fn focus_moved(&mut self, _: Option<&NodeRef>, _: Option<&NodeRef>) {}
+    fn node_removed(&mut self, _: &NodeRef) {}
 }
 
 #[test]
@@ -271,7 +266,7 @@ fn test_accessibility_name_from_contents_subtree() {
         .next()
         .expect("Root web area should have at least one child.");
     assert_eq!(heading.role(), Role::Heading);
-    let heading_children: Vec<accesskit_consumer::Node> = heading.children().collect();
+    let heading_children: Vec<NodeRef> = heading.children().collect();
     assert_eq!(heading_children.len(), 9);
     assert_eq!(
         heading.label(),
@@ -332,7 +327,7 @@ fn test_accessibility_with_mutation_move_nodes() {
     let (servo_test, delegate, webview, mut tree) = build_webview_and_tree(url);
 
     let root = assert_tree_structure_and_get_root_web_area(&tree);
-    let children: Vec<accesskit_consumer::Node> = root.children().collect();
+    let children: Vec<NodeRef> = root.children().collect();
     assert_eq!(children.len(), 4);
     let div1 = children[0];
     let h1 = children[1];
@@ -385,7 +380,7 @@ fn test_accessibility_text_change() {
     let (servo_test, delegate, webview, mut tree) = build_webview_and_tree(url);
 
     let root = assert_tree_structure_and_get_root_web_area(&tree);
-    let children: Vec<accesskit_consumer::Node> = root.children().collect();
+    let children: Vec<NodeRef> = root.children().collect();
     assert_eq!(children.len(), 1);
     let h1 = children[0];
     assert_eq!(h1.role(), Role::Heading);
@@ -405,7 +400,7 @@ fn test_accessibility_text_change() {
     assert_eq!(heading.children().len(), 1);
     tree.update_and_process_changes(update, &mut NoOpChangeHandler);
     let root = assert_tree_structure_and_get_root_web_area(&tree);
-    let children: Vec<accesskit_consumer::Node> = root.children().collect();
+    let children: Vec<NodeRef> = root.children().collect();
     assert_eq!(children.len(), 1);
     let h1 = children[0];
     assert_eq!(h1.role(), Role::Heading);
@@ -424,7 +419,7 @@ fn test_accessibility_role_mutations() {
     let (servo_test, delegate, webview, mut tree) = build_webview_and_tree(url);
 
     let root = assert_tree_structure_and_get_root_web_area(&tree);
-    let children: Vec<accesskit_consumer::Node> = root.children().collect();
+    let children: Vec<NodeRef> = root.children().collect();
     assert_eq!(children.len(), 3);
     let div = children[0];
     assert_eq!(
@@ -476,7 +471,7 @@ fn test_accessibility_role_mutations() {
     );
     tree.update_and_process_changes(update, &mut NoOpChangeHandler);
     let root = assert_tree_structure_and_get_root_web_area(&tree);
-    let children: Vec<accesskit_consumer::Node> = root.children().collect();
+    let children: Vec<NodeRef> = root.children().collect();
     assert_eq!(children.len(), 3);
     assert_eq!(children[0].role(), Role::Blockquote);
     assert_eq!(children[1].role(), Role::GenericContainer);
@@ -496,7 +491,7 @@ fn test_accessibility_partial_subtree_move_and_delete() {
     let (servo_test, delegate, webview, mut tree) = build_webview_and_tree(url);
 
     let root = assert_tree_structure_and_get_root_web_area(&tree);
-    let children: Vec<accesskit_consumer::Node> = root.children().collect();
+    let children: Vec<NodeRef> = root.children().collect();
     assert_eq!(children.len(), 2);
     let header = children[0];
     assert_eq!(header.role(), Role::Banner);
@@ -524,11 +519,11 @@ fn test_accessibility_partial_subtree_move_and_delete() {
     let update = updates.pop().expect("Guaranteed by assert above");
     tree.update_and_process_changes(update, &mut NoOpChangeHandler);
     let root = assert_tree_structure_and_get_root_web_area(&tree);
-    let children: Vec<accesskit_consumer::Node> = root.children().collect();
+    let children: Vec<NodeRef> = root.children().collect();
     assert_eq!(children.len(), 1);
     let article = children[0];
     assert_eq!(article.role(), Role::Article);
-    let children: Vec<accesskit_consumer::Node> = article.children().collect();
+    let children: Vec<NodeRef> = article.children().collect();
     assert_eq!(children.len(), 3);
     let h1 = children[0];
     assert_eq!(h1.role(), Role::Heading);
@@ -547,7 +542,7 @@ fn test_accessibility_children_of_heading_change() {
     let (servo_test, delegate, webview, mut tree) = build_webview_and_tree(url);
 
     let root = assert_tree_structure_and_get_root_web_area(&tree);
-    let children: Vec<accesskit_consumer::Node> = root.children().collect();
+    let children: Vec<NodeRef> = root.children().collect();
     assert_eq!(children.len(), 1);
     let heading = children[0];
     assert_eq!(heading.role(), Role::Heading);
@@ -587,7 +582,7 @@ fn test_accessibility_descendants_of_heading_change() {
     let (servo_test, delegate, webview, mut tree) = build_webview_and_tree(url);
 
     let root = assert_tree_structure_and_get_root_web_area(&tree);
-    let children: Vec<accesskit_consumer::Node> = root.children().collect();
+    let children: Vec<NodeRef> = root.children().collect();
     assert_eq!(children.len(), 1);
     let heading = children[0];
     assert_eq!(heading.role(), Role::Heading);
@@ -824,7 +819,7 @@ fn test_accessibility_bounds_updated_after_renderer_scroll() {
     let root = assert_tree_structure_and_get_root_web_area(&tree);
     let main = find_first_matching_node(root, |node| node.role() == Role::Main)
         .expect("Document should contain a main element");
-    let main_id = main.locate().0; // Maps to layout's NodeId
+    let _main_id = main.locate().0; // Maps to layout's NodeId
     assert_rect_eq(
         main.raw_bounds().expect("main should have bounds"),
         Rect::new(10.0, 100.0, 110.0, 150.0),
@@ -862,7 +857,7 @@ fn test_accessibility_bounds_updated_after_script_scroll() {
     let root = assert_tree_structure_and_get_root_web_area(&tree);
     let main = find_first_matching_node(root, |node| node.role() == Role::Main)
         .expect("Document should contain a main element");
-    let main_id = main.locate().0; // Maps to layout's NodeId
+    let _main_id = main.locate().0; // Maps to layout's NodeId
     assert_rect_eq(
         main.raw_bounds().expect("main should have bounds"),
         Rect::new(10.0, 100.0, 110.0, 150.0),
@@ -932,7 +927,7 @@ fn test_accessibility_unchanged_bounds_are_not_resent() {
     let (servo_test, delegate, webview, tree) = build_webview_and_tree(url);
 
     let root = assert_tree_structure_and_get_root_web_area(&tree);
-    let children: Vec<accesskit_consumer::Node> = root.children().collect();
+    let children: Vec<NodeRef> = root.children().collect();
     assert_eq!(children.len(), 2);
     let (node_a, node_b) = (children[0], children[1]);
     assert_rect_eq(
@@ -1013,14 +1008,7 @@ fn build_test() -> ServoTest {
     servo_test
 }
 
-fn build_webview_and_tree(
-    url: &str,
-) -> (
-    ServoTest,
-    Rc<WebViewDelegateImpl>,
-    servo::WebView,
-    accesskit_consumer::Tree,
-) {
+fn build_webview_and_tree(url: &str) -> (ServoTest, Rc<WebViewDelegateImpl>, servo::WebView, Tree) {
     let servo_test = build_test();
     let delegate = Rc::new(WebViewDelegateImpl::default());
     let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
@@ -1053,7 +1041,7 @@ fn wait_for_min_updates(
         .collect()
 }
 
-fn build_tree(tree_updates: Vec<TreeUpdate>) -> accesskit_consumer::Tree {
+fn build_tree(tree_updates: Vec<TreeUpdate>) -> Tree {
     let first_update = tree_updates[0].clone();
     let tree_id = first_update.tree_id;
 
@@ -1076,7 +1064,7 @@ fn build_tree(tree_updates: Vec<TreeUpdate>) -> accesskit_consumer::Tree {
 
     root_node.set_children(vec![graft_node_id]);
 
-    let root_tree = accesskit::Tree {
+    let root_tree = TreeInfo {
         root: root_node_id,
         toolkit_name: None,
         toolkit_version: None,
@@ -1089,7 +1077,7 @@ fn build_tree(tree_updates: Vec<TreeUpdate>) -> accesskit_consumer::Tree {
         focus: root_node_id,
     };
 
-    let mut tree = accesskit_consumer::Tree::new(root_update, true /* is_host_focused */);
+    let mut tree = Tree::new(root_update, true /* is_host_focused */);
 
     for tree_update in tree_updates {
         tree.update_and_process_changes(tree_update, &mut NoOpChangeHandler);
@@ -1097,13 +1085,11 @@ fn build_tree(tree_updates: Vec<TreeUpdate>) -> accesskit_consumer::Tree {
     tree
 }
 
-fn assert_tree_structure_and_get_root_web_area<'tree>(
-    tree: &'tree accesskit_consumer::Tree,
-) -> accesskit_consumer::Node<'tree> {
+fn assert_tree_structure_and_get_root_web_area<'tree>(tree: &'tree Tree) -> NodeRef<'tree> {
     let root_node = tree.state().root();
     let scroll_view = find_first_matching_node(root_node, |node| node.role() == Role::ScrollView)
         .expect("Tree should include a scroll view corresponding to the WebView.");
-    let scroll_view_children: Vec<accesskit_consumer::Node<'_>> = scroll_view.children().collect();
+    let scroll_view_children: Vec<NodeRef<'_>> = scroll_view.children().collect();
     assert_eq!(scroll_view_children.len(), 1);
     let graft_node = scroll_view_children[0];
     assert!(graft_node.is_graft());
@@ -1113,9 +1099,9 @@ fn assert_tree_structure_and_get_root_web_area<'tree>(
 }
 
 fn find_first_matching_node(
-    root_node: accesskit_consumer::Node<'_>,
-    mut pred: impl FnMut(&accesskit_consumer::Node) -> bool,
-) -> Option<accesskit_consumer::Node<'_>> {
+    root_node: NodeRef<'_>,
+    mut pred: impl FnMut(&NodeRef) -> bool,
+) -> Option<NodeRef<'_>> {
     let mut children = root_node.children().collect::<VecDeque<_>>();
     while let Some(candidate) = children.pop_front() {
         if pred(&candidate) {
@@ -1129,9 +1115,9 @@ fn find_first_matching_node(
 }
 
 fn find_all_matching_nodes(
-    root_node: accesskit_consumer::Node<'_>,
-    mut pred: impl FnMut(&accesskit_consumer::Node) -> bool,
-) -> Vec<accesskit_consumer::Node<'_>> {
+    root_node: NodeRef<'_>,
+    mut pred: impl FnMut(&NodeRef) -> bool,
+) -> Vec<NodeRef<'_>> {
     let mut children = root_node.children().collect::<VecDeque<_>>();
     let mut result = vec![];
     while let Some(candidate) = children.pop_front() {
