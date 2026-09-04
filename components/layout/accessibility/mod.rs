@@ -1432,7 +1432,7 @@ impl<'update> AccessibilityUpdate<'update> {
 
             counters.nodes_in_tree_update = changed_nodes.len().try_into().unwrap_or_default();
 
-            let accesskit_tree = accesskit::Tree::new(root_node_id);
+            let accesskit_tree = accesskit::TreeInfo::new(root_node_id);
             tree_update = Some(accesskit::TreeUpdate {
                 // Filter out any nodes which were both changed and removed.
                 nodes: changed_nodes,

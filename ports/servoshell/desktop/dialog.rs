@@ -203,7 +203,7 @@ impl Dialog {
                 };
 
                 let mut is_open = true;
-                Modal::new("Alert".into()).show(ctx, |ui| {
+                Modal::new(egui::Id::unique("Alert")).show(ctx, |ui| {
                     make_dialog_label(alert_dialog.message(), ui, None);
                     egui::Sides::new().show(
                         ui,
@@ -229,7 +229,7 @@ impl Dialog {
                 };
 
                 let mut dialog_action = DialogAction::Continue;
-                Modal::new("Confirm".into()).show(ctx, |ui| {
+                Modal::new(egui::Id::unique("Confirm")).show(ctx, |ui| {
                     make_dialog_label(confirm_dialog.message(), ui, None);
                     egui::Sides::new().show(
                         ui,
@@ -271,7 +271,7 @@ impl Dialog {
                 };
 
                 let mut dialog_action = DialogAction::Continue;
-                Modal::new("Prompt".into()).show(ctx, |ui| {
+                Modal::new(egui::Id::unique("Prompt")).show(ctx, |ui| {
                     let mut prompt_text = prompt_dialog.current_value().to_owned();
                     make_dialog_label(prompt_dialog.message(), ui, Some(&mut prompt_text));
                     egui::Sides::new().show(
@@ -315,7 +315,7 @@ impl Dialog {
                 request,
             } => {
                 let mut is_open = true;
-                Modal::new("authentication".into()).show(ctx, |ui| {
+                Modal::new(egui::Id::unique("authentication")).show(ctx, |ui| {
                     let mut frame = egui::Frame::default().inner_margin(10.0).begin(ui);
                     frame.content_ui.set_min_width(MINIMUM_UI_ELEMENT_WIDTH);
 
@@ -367,7 +367,7 @@ impl Dialog {
             },
             Dialog::Permission { message, request } => {
                 let mut is_open = true;
-                let modal = Modal::new("permission".into());
+                let modal = Modal::new(egui::Id::unique("permission"));
                 modal.show(ctx, |ui| {
                     make_dialog_label(message, ui, None);
                     egui::Sides::new().show(
@@ -400,7 +400,7 @@ impl Dialog {
                 selected_device_index,
             } => {
                 let mut is_open = true;
-                let modal = Modal::new("device_picker".into());
+                let modal = Modal::new(egui::Id::unique("device_picker"));
                 modal.show(ctx, |ui| {
                     if let Some(request) = request {
                         let mut frame = egui::Frame::default().inner_margin(10.0).begin(ui);
@@ -477,7 +477,7 @@ impl Dialog {
                 let mut position = prompt.position();
                 position.min.y += toolbar_offset.0 as i32;
                 position.max.y += toolbar_offset.0 as i32;
-                let area = egui::Area::new(egui::Id::new("select-window"))
+                let area = egui::Area::new(egui::Id::unique("select-window"))
                     .fixed_pos(egui::pos2(position.min.x as f32, position.max.y as f32));
 
                 let mut selected_options = prompt.selected_options();
@@ -538,7 +538,7 @@ impl Dialog {
                     }
                 }
 
-                let modal = Modal::new("select_element_picker".into()).area(area);
+                let modal = Modal::new(egui::Id::unique("select_element_picker")).area(area);
                 let backdrop_response = modal
                     .show(ctx, |ui| {
                         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -601,10 +601,10 @@ impl Dialog {
                 let mut position = prompt.position();
                 position.min.y += toolbar_offset.0 as i32;
                 position.max.y += toolbar_offset.0 as i32;
-                let area = egui::Area::new(egui::Id::new("select-window"))
+                let area = egui::Area::new(egui::Id::unique("select-window"))
                     .fixed_pos(egui::pos2(position.min.x as f32, position.max.y as f32));
 
-                let modal = Modal::new("select_element_picker".into()).area(area);
+                let modal = Modal::new(egui::Id::unique("select_element_picker")).area(area);
                 let backdrop_response = modal
                     .show(ctx, |ui| {
                         egui::widgets::color_picker::color_picker_color32(
@@ -651,7 +651,7 @@ impl Dialog {
                     position.min.y += toolbar_offset.0 as i32;
                     position.max.y += toolbar_offset.0 as i32;
 
-                    let response = Area::new(Id::new("context_menu"))
+                    let response = Area::new(Id::unique("context_menu"))
                         .fixed_pos(pos2(position.min.x as f32, position.min.y as f32))
                         .order(Order::Foreground)
                         .show(ctx, |ui| {

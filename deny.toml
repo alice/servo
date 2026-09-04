@@ -164,11 +164,7 @@ skip = [
     # Duplicated by wgpu/egui+dependencies
     "objc2-ui-kit",
     "read-fonts",
-    "font-types",
     "skrifa",
-    "vello_common",
-    "vello_cpu",
-    "fearless_simd",
 
     # Duplicated by resvg/image
     "roxmltree",
@@ -210,16 +206,12 @@ skip = [
     "toml",
     "toml_datetime",
     "winnow",
-
-    # Duplicated by cssparser which brings in new versions
-    "phf",
-    "phf_generator",
-    "phf_macros",
-    "phf_shared",
 ]
 
 # github.com organizations to allow git sources for
 [sources.allow-org]
 github = [
     "servo",
+    # TODO: Remove once we don't need to patch egui to get the latest accesskit
+    "emilk",
 ]

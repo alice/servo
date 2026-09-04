@@ -25,8 +25,8 @@ use dpi::PhysicalSize;
 use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
 use egui::{
-    Button, FontDefinitions, Id, Key, Label, LayerId, Modifiers, Order, PaintCallback, Panel, Vec2,
-    WidgetInfo, WidgetType, pos2,
+    Button, FontDefinitions, Key, Label, LayerId, Modifiers, Order, PaintCallback, Panel, Role,
+    Vec2, WidgetInfo, pos2,
 };
 #[cfg(any(
     target_os = "windows",
@@ -373,7 +373,7 @@ impl Gui {
                 .content_ui
                 .add(egui::Button::new("X").fill(egui::Color32::TRANSPARENT));
             close_button.widget_info(|| {
-                let mut info = WidgetInfo::new(WidgetType::Button);
+                let mut info = WidgetInfo::new(Role::Button);
                 info.label = Some("Close".into());
                 info
             });
@@ -426,7 +426,7 @@ impl Gui {
                 let frame = egui::Frame::default()
                     .fill(ctx.style().visuals.window_fill)
                     .inner_margin(4.0);
-                Panel::top("toolbar").frame(frame).show_inside(ctx, |ui| {
+                Panel::top("toolbar").frame(frame).show(ctx, |ui| {
                     ui.allocate_ui_with_layout(
                         ui.available_size(),
                         egui::Layout::left_to_right(egui::Align::Center),
@@ -434,7 +434,7 @@ impl Gui {
                             let back_button =
                                 ui.add_enabled(self.can_go_back, Gui::toolbar_button("⏴"));
                             back_button.widget_info(|| {
-                                let mut info = WidgetInfo::new(WidgetType::Button);
+                                let mut info = WidgetInfo::new(Role::Button);
                                 info.label = Some("Back".into());
                                 info
                             });
@@ -446,7 +446,7 @@ impl Gui {
                             let forward_button =
                                 ui.add_enabled(self.can_go_forward, Gui::toolbar_button("⏵"));
                             forward_button.widget_info(|| {
-                                let mut info = WidgetInfo::new(WidgetType::Button);
+                                let mut info = WidgetInfo::new(Role::Button);
                                 info.label = Some("Forward".into());
                                 info
                             });
@@ -459,7 +459,7 @@ impl Gui {
                                 LoadStatus::Started | LoadStatus::HeadParsed => {
                                     let stop_button = ui.add(Gui::toolbar_button("X"));
                                     stop_button.widget_info(|| {
-                                        let mut info = WidgetInfo::new(WidgetType::Button);
+                                        let mut info = WidgetInfo::new(Role::Button);
                                         info.label = Some("Stop".into());
                                         info
                                     });
@@ -470,7 +470,7 @@ impl Gui {
                                 LoadStatus::Complete => {
                                     let reload_button = ui.add(Gui::toolbar_button("↻"));
                                     reload_button.widget_info(|| {
-                                        let mut info = WidgetInfo::new(WidgetType::Button);
+                                        let mut info = WidgetInfo::new(Role::Button);
                                         info.label = Some("Reload".into());
                                         info
                                     });
@@ -494,7 +494,7 @@ impl Gui {
                                         .toggle_value(&mut experimental_preferences_enabled, "☢")
                                         .on_hover_text("Enable experimental prefs");
                                     prefs_toggle.widget_info(|| {
-                                        let mut info = WidgetInfo::new(WidgetType::Button);
+                                        let mut info = WidgetInfo::new(Role::Button);
                                         info.label = Some("Enable experimental preferences".into());
                                         info.selected = Some(experimental_preferences_enabled);
                                         info
@@ -509,7 +509,7 @@ impl Gui {
                                         );
                                     }
 
-                                    let location_id = egui::Id::new("location_input");
+                                    let location_id = egui::Id::unique("location_input");
                                     let location_field = ui.add_sized(
                                         ui.available_size(),
                                         egui::TextEdit::singleline(location)
@@ -559,7 +559,7 @@ impl Gui {
                 });
 
                 // A simple Tab header strip
-                let outer = Panel::top("tabs").show_inside(ctx, |ui| {
+                let outer = Panel::top("tabs").show(ctx, |ui| {
                     // Add scroll for overflowing tabs
                     egui::ScrollArea::horizontal()
                         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
@@ -578,7 +578,7 @@ impl Gui {
 
                                     let new_tab_button = ui.add(Gui::toolbar_button("+"));
                                     new_tab_button.widget_info(|| {
-                                        let mut info = WidgetInfo::new(WidgetType::Button);
+                                        let mut info = WidgetInfo::new(Role::Button);
                                         info.label = Some("New tab".into());
                                         info
                                     });
@@ -590,7 +590,7 @@ impl Gui {
 
                                     let new_window_button = ui.add(Gui::toolbar_button("⊞"));
                                     new_window_button.widget_info(|| {
-                                        let mut info = WidgetInfo::new(WidgetType::Button);
+                                        let mut info = WidgetInfo::new(Role::Button);
                                         info.label = Some("New window".into());
                                         info
                                     });
@@ -632,7 +632,7 @@ impl Gui {
             };
             for (webview_id, webview) in window.webviews() {
                 if let Some(tree_id) = webview.accesskit_tree_id() {
-                    let id = egui::Id::new(webview_id);
+                    let id = egui::Id::unique(webview_id);
                     ctx.accesskit_node_builder(id, |node| {
                         node.set_tree_id(tree_id);
                         // Only the transform is set: AccessKit consumers exclude graft nodes from
@@ -654,8 +654,8 @@ impl Gui {
             if let Some(status_text) = &self.status_text {
                 egui::Tooltip::always_open(
                     ctx.clone(),
-                    LayerId::new(Order::Tooltip, Id::new("tooltip")),
-                    "tooltip layer".into(),
+                    LayerId::new(Order::Tooltip, egui::Id::unique("tooltip")),
+                    egui::Id::unique("tooltip layer"),
                     pos2(0.0, available_rect.max.y),
                 )
                 .show(|ui| ui.add(Label::new(status_text.clone()).extend()));
