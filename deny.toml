@@ -164,11 +164,11 @@ skip = [
     # Duplicated by wgpu/egui+dependencies
     "objc2-ui-kit",
     "read-fonts",
-    "font-types",
     "skrifa",
-    "vello_common",
-    "vello_cpu",
-    "fearless_simd",
+    "phf",
+    "phf_macros",
+    "phf_shared",
+    "phf_generator",
 
     # Duplicated by resvg/image
     "roxmltree",
