@@ -162,7 +162,7 @@ pub(crate) fn compute_damage_and_rebuild_box_tree_above_dirty_root<'dom>(
         {
             let mut element_data = parent_element.element_data_mut();
             element_data.damage.insert(RestyleDamage::from_bits_retain(
-                AccessibilityDamage::DescendantHasDamage.bits(),
+                AccessibilityDamage::DescendantHasDamageFromLayout.bits(),
             ));
         }
         let damage_set = ElementDamageSet {
@@ -243,7 +243,7 @@ pub(crate) fn compute_damage_and_rebuild_box_tree_below_dirty_root<'dom>(
     {
         let mut element_data = element.element_data_mut();
         element_data.damage.insert(RestyleDamage::from_bits_retain(
-            AccessibilityDamage::DescendantHasDamage.bits(),
+            AccessibilityDamage::DescendantHasDamageFromLayout.bits(),
         ));
     }
 
@@ -348,7 +348,7 @@ impl<'a> ElementDamageSet<'a> {
         let only_layout_mode_damage =
             (self.from_parent | self.on_element | self.from_children).only_layout_modes();
 
-        let record_accessibility_layout_damage = || {
+        let record_accessibility_layout_damage = |propagate| {
             if layout_context.accessibility_active &&
                 let Some(element) = self.node.as_element()
             {
@@ -356,14 +356,16 @@ impl<'a> ElementDamageSet<'a> {
                 element_data.damage.insert(RestyleDamage::from_bits_retain(
                     AccessibilityDamage::Layout.bits(),
                 ));
-                return LayoutDamage::DescendantHasAccessibilityDamage;
+                if propagate {
+                    return LayoutDamage::DescendantHasAccessibilityDamage;
+                }
             }
             LayoutDamage::empty()
         };
 
         let invalidate_for_rebuild = || {
             self.node.unset_all_boxes();
-            record_accessibility_layout_damage() |
+            record_accessibility_layout_damage(true) |
                 LayoutDamage::DescendantHasBoxDamage |
                 LayoutDamage::Relayout
         };
@@ -385,7 +387,7 @@ impl<'a> ElementDamageSet<'a> {
                 {
                     // In this case, we have rebuilt the box tree from this point and we do not
                     // have to propagate rebuild box tree damage up the tree any further.
-                    record_accessibility_layout_damage() |
+                    record_accessibility_layout_damage(true) |
                         LayoutDamage::Relayout |
                         LayoutDamage::RecomputeInlineContentSizes
                 } else {
@@ -433,7 +435,7 @@ impl<'a> ElementDamageSet<'a> {
                     inline_size_depends_on_content,
                 );
 
-                damage_for_parent
+                record_accessibility_layout_damage(true) | damage_for_parent
             },
             BoxDamageAction::CollectLayoutRoot(layout_root) => {
                 // A layout root should only be collected if a parent node does not
@@ -455,7 +457,7 @@ impl<'a> ElementDamageSet<'a> {
                     base.mark_fragments_as_descendants_changed();
                 });
 
-                record_accessibility_layout_damage() |
+                record_accessibility_layout_damage(false) |
                     LayoutDamage::RecalculateOverflow |
                     LayoutDamage::DescendantCollectedAsLayoutRoot |
                     LayoutDamage::RecomputeInlineContentSizes
