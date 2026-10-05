@@ -230,11 +230,13 @@ impl HeadedWindow {
         // First, handle servoshell key bindings that are not overridable by, or visible to, the page.
         let keyboard_event = keyboard_event_from_winit(&winit_event, self.modifiers_state.get());
         if self.handle_intercepted_key_bindings(state, window, &keyboard_event) {
+            dbg!("intercepted");
             return;
         }
 
         // Then we deliver character and keyboard events to the page in the active webview.
         let Some(webview) = window.active_webview() else {
+            dbg!("inactive");
             return;
         };
 
@@ -244,6 +246,7 @@ impl HeadedWindow {
         }
 
         let id = webview.notify_input_event(InputEvent::Keyboard(keyboard_event.clone()));
+        dbg!(id);
         self.pending_keyboard_events
             .borrow_mut()
             .insert(id, keyboard_event);
@@ -511,6 +514,10 @@ impl HeadedWindow {
         window: Rc<ServoShellWindow>,
         event: WindowEvent,
     ) {
+        let should_log = matches!(&event, WindowEvent::KeyboardInput { .. });
+        if should_log {
+            dbg!(&event);
+        }
         // Handle resize events first, so that any subsequent redrawing draws onto a buffer of the
         // correct size.
         let mut resized = false;
@@ -622,11 +629,17 @@ impl HeadedWindow {
                 {
                     consumed = false;
                 } else {
+                    if should_log {
+                        dbg!(&response);
+                    }
                     // TODO how do we handle the tab key? (see doc for consumed)
                     // Note that servo doesn’t yet support tabbing through links and inputs
                     consumed = response.consumed;
                 }
             },
+        }
+        if should_log {
+            dbg!(consumed);
         }
 
         if !consumed && let Some(webview) = window.active_webview() {

@@ -26,7 +26,7 @@ use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
 use egui::{
     Button, FontDefinitions, Id, Key, Label, LayerId, Modifiers, Order, PaintCallback, Panel, Vec2,
-    WidgetInfo, WidgetType, pos2,
+    Widget, WidgetInfo, WidgetType, pos2,
 };
 #[cfg(any(
     target_os = "windows",
@@ -804,6 +804,28 @@ impl Gui {
 
     pub(crate) fn notify_accessibility_tree_update(&mut self, tree_update: accesskit::TreeUpdate) {
         self.pending_accesskit_updates.push(tree_update);
+    }
+}
+
+struct WebViewPanel {
+    focused: bool,
+}
+
+impl WebViewPanel {
+    pub fn new() -> Self {
+        Self { focused: false }
+    }
+
+    // TODO: copy what CentralPanel does in `show_inside_dyn()`
+    // to take up all the remaining space
+
+    // TODO: when to call `interested_in_focus()`?
+    // Have a look at DragValue::ui()??
+}
+
+impl Widget for WebViewPanel {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        todo!()
     }
 }
 
