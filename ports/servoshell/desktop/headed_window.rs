@@ -230,13 +230,13 @@ impl HeadedWindow {
         // First, handle servoshell key bindings that are not overridable by, or visible to, the page.
         let keyboard_event = keyboard_event_from_winit(&winit_event, self.modifiers_state.get());
         if self.handle_intercepted_key_bindings(state, window, &keyboard_event) {
-            dbg!("intercepted");
+            // dbg!("intercepted");
             return;
         }
 
         // Then we deliver character and keyboard events to the page in the active webview.
         let Some(webview) = window.active_webview() else {
-            dbg!("inactive");
+            // dbg!("inactive");
             return;
         };
 
@@ -246,7 +246,6 @@ impl HeadedWindow {
         }
 
         let id = webview.notify_input_event(InputEvent::Keyboard(keyboard_event.clone()));
-        dbg!(id);
         self.pending_keyboard_events
             .borrow_mut()
             .insert(id, keyboard_event);
@@ -516,7 +515,7 @@ impl HeadedWindow {
     ) {
         let should_log = matches!(&event, WindowEvent::KeyboardInput { .. });
         if should_log {
-            dbg!(&event);
+            // dbg!(&event);
         }
         // Handle resize events first, so that any subsequent redrawing draws onto a buffer of the
         // correct size.
@@ -602,11 +601,12 @@ impl HeadedWindow {
             {
                 self.gui.borrow().surrender_focus();
             },
-            WindowEvent::KeyboardInput { .. } if !self.gui.borrow().has_keyboard_focus() => {
-                // Keyboard events should go to the WebView unless some other GUI
-                // component has keyboard focus.
-            },
+            // WindowEvent::KeyboardInput { .. } if !self.gui.borrow().has_keyboard_focus() => {
+            //     // Keyboard events should go to the WebView unless some other GUI
+            //     // component has keyboard focus.
+            // },
             ref event => {
+                // If we have a WebViewPanel, will egui forward key events to it when it's focused?
                 let response = self
                     .gui
                     .borrow_mut()
@@ -630,7 +630,7 @@ impl HeadedWindow {
                     consumed = false;
                 } else {
                     if should_log {
-                        dbg!(&response);
+                        // dbg!(&response);
                     }
                     // TODO how do we handle the tab key? (see doc for consumed)
                     // Note that servo doesn’t yet support tabbing through links and inputs
@@ -639,7 +639,7 @@ impl HeadedWindow {
             },
         }
         if should_log {
-            dbg!(consumed);
+            // dbg!(consumed);
         }
 
         if !consumed && let Some(webview) = window.active_webview() {
