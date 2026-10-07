@@ -1369,8 +1369,9 @@ fn test_accessibility_click_link() {
         .servo
         .forward_accessibility_action(action_request);
 
-    let updates = wait_for_min_updates(&servo_test, delegate.clone(), 1);
-    assert_eq!(updates.len(), 2);
+    // Graft node, new pipeline, focus graft node.
+    let updates = wait_for_min_updates(&servo_test, delegate.clone(), 3);
+    assert_eq!(updates.len(), 3);
     for update in updates {
         tree.update_and_process_changes(update, &mut NoOpChangeHandler);
     }

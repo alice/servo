@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use accesskit::Affine;
+use egui::Event::Key;
 use egui::{Button, EventFilter, Panel, Rect, Sense, Widget, WidgetInfo, WidgetType};
 use euclid::Scale;
 use servo::{DeviceIndependentPixel, DevicePixel, WebView, WebViewId};
@@ -231,6 +232,9 @@ impl Widget for WebViewPanel {
                 // the presented tree, so bounds on this node would never be read.
                 node.set_transform(affine);
             });
+            dbg!(self.id.accesskit_id());
+        } else {
+            dbg!("no accesskit_tree_id");
         }
 
         ui.memory_mut(|mem| mem.interested_in_focus(self.id, ui.layer_id()));
@@ -242,12 +246,14 @@ impl Widget for WebViewPanel {
         };
         ui.memory_mut(|mem| mem.set_focus_lock_filter(self.id, event_filter));
         let focused = ui.memory(|mem| mem.has_focus(self.id));
-        dbg!(focused);
+        // dbg!(focused);
 
         let events = ui.input(|i| i.filtered_events(&event_filter));
         for event in events {
-            // TODO: forward keyboard events to webview
-            dbg!(event);
+            if focused && matches!(event, Key { .. }) {
+                // TODO: forward keyboard events to webview
+                dbg!(event);
+            }
         }
 
         // ui.response() ?
