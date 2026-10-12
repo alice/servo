@@ -3,9 +3,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::cell::RefCell;
+use std::fmt::Debug;
 use std::iter::repeat;
-use std::sync::atomic::{self, AtomicU64};
+use std::sync::atomic;
+use std::sync::atomic::AtomicU64;
 
+use accesskit::{ActionRequest, NodeId, Role};
 use layout_api::{
     AccessibilityActionRequest, AccessibilityDamage, LayoutNode, node_id_from_scroll_id,
 };
@@ -21,48 +24,9 @@ use webrender_api::ExternalScrollId;
 use webrender_api::units::LayoutVector2D;
 
 use crate::ArcRefCell;
-use crate::accessibility::accessibility_node::{AccessibilityNode, DirtyState};
-use crate::display_list::StackingContextTree;
-use crate::layout_impl::LayoutThread;
-
-mod accessibility_node;
-
-use accesskit::{ActionRequest, NodeId, Role};
-
-/// Everything the accessibility tree needs from layout in order to compute node bounds during an
-/// update.
-pub(crate) struct AccessibilityContext<'update> {
-    pub(crate) layout_thread: &'update LayoutThread,
-    pub(crate) stacking_context_tree: &'update StackingContextTree,
-    pub(crate) focused_element: Option<OpaqueNode>,
-    pub(crate) rooted_nodes_for_integrity_check: Option<FxHashSet<OpaqueNode>>,
-}
-
-/// All the [`AccessibilityDamage`] which comes from outside the accessibility tree itself.
-pub(crate) type AccessibilityDamageMap<'a> =
-    FxHashMap<OpaqueNode, (ServoLayoutNode<'a>, AccessibilityDamage)>;
-
-/// Changes which have occurred during the current update, and data required to process the update.
-pub(super) struct AccessibilityUpdate<'update> {
-    /// Nodes whose internal data has changed within the current update.
-    changed_nodes: FxHashSet<NodeId>,
-    /// Sent with the initial [`accesskit::TreeUpdate`], and whenever the root node changes.
-    /// This is a property of the update, rather than the tree, because it only needs to exist for
-    /// updates where one of those two conditions is true.
-    accesskit_tree: Option<accesskit::Tree>,
-    /// Nodes that changed their relation to the tree within the current update.
-    tree_changes: FxHashMap<NodeId, TreeChange>,
-    /// Whether the tree's focused node has changed in this update.
-    focused_node_changed: bool,
-    /// Counters to track how many nodes we've checked for changes or updated in this tree update.
-    counters: UpdateCounters,
-
-    /// Map of [`NodeId`] to the [`AccessibilityDamage`] which was passed in for that node.
-    damage_map: FxHashMap<NodeId, AccessibilityDamage>,
-    /// Map of [`NodeId`] to the corresponding [`ServoLayoutNode`]. This is populated for nodes
-    /// which have damage, including nodes which are newly added to the accessibility tree.
-    dom_node_map: RefCell<FxHashMap<NodeId, ServoLayoutNode<'update>>>,
-}
+use crate::accessibility::{
+    AccessibilityContext, AccessibilityDamageMap, AccessibilityNode, DirtyState,
+};
 
 #[derive(Debug, Default)]
 pub struct UpdateCounters {
@@ -118,12 +82,34 @@ pub struct AccessibilityTree {
     debug: DiagnosticsLogging,
 }
 
+/// Changes which have occurred during the current update, and data required to process the update.
+pub(super) struct AccessibilityUpdate<'update> {
+    /// Nodes whose internal data has changed within the current update.
+    changed_nodes: FxHashSet<NodeId>,
+    /// Sent with the initial [`accesskit::TreeUpdate`], and whenever the root node changes.
+    /// This is a property of the update, rather than the tree, because it only needs to exist for
+    /// updates where one of those two conditions is true.
+    accesskit_tree: Option<accesskit::Tree>,
+    /// Nodes that changed their relation to the tree within the current update.
+    tree_changes: FxHashMap<NodeId, TreeChange>,
+    /// Whether the tree's focused node has changed in this update.
+    focused_node_changed: bool,
+    /// Counters to track how many nodes we've checked for changes or updated in this tree update.
+    pub(super) counters: UpdateCounters,
+
+    /// Map of [`NodeId`] to the [`AccessibilityDamage`] which was passed in for that node.
+    damage_map: FxHashMap<NodeId, AccessibilityDamage>,
+    /// Map of [`NodeId`] to the corresponding [`ServoLayoutNode`]. This is populated for nodes
+    /// which have damage, including nodes which are newly added to the accessibility tree.
+    dom_node_map: RefCell<FxHashMap<NodeId, ServoLayoutNode<'update>>>,
+}
+
 /// Tracks changes to a node's relation to the tree within an update.
 ///
 /// This is used to remove nodes from the accessibility tree's cache when they are no longer in the
 /// tree.
 #[derive(Debug, PartialEq, Copy, Clone)]
-enum TreeChange {
+pub(super) enum TreeChange {
     /// The node was newly created in this update.
     New,
 
@@ -153,7 +139,7 @@ enum TreeChange {
 
 impl AccessibilityTree {
     /// See [`Self::tree_id`] and [`Self::embedder_epoch`] for explanations of the parameters.
-    pub(super) fn new(tree_id: accesskit::TreeId, embedder_epoch: Epoch) -> Self {
+    pub(crate) fn new(tree_id: accesskit::TreeId, embedder_epoch: Epoch) -> Self {
         Self {
             nodes: FxHashMap::default(),
             focused_node_id: None,
@@ -170,7 +156,7 @@ impl AccessibilityTree {
 
     /// Update this tree based on the current state of the given DOM tree, and if anything changed,
     /// return an [`accesskit::TreeUpdate`] representing what changed.
-    pub(super) fn update_tree<'update>(
+    pub(crate) fn update_tree<'update>(
         &mut self,
         root_dom_node: &ServoLayoutNode<'update>,
         damage_from_dom: AccessibilityDamageMap<'update>,
@@ -196,7 +182,7 @@ impl AccessibilityTree {
 
     /// Add all given scroll updates to [`Self::pending_scroll_updates`].
     /// See [`Self::handle_pending_scroll_updates()`].
-    pub(super) fn add_pending_scroll_updates(
+    pub(crate) fn add_pending_scroll_updates(
         &mut self,
         scroll_states: FxHashMap<ExternalScrollId, LayoutVector2D>,
     ) {
@@ -205,7 +191,7 @@ impl AccessibilityTree {
 
     /// Add the given scroll update to [`Self::pending_scroll_updates`].
     /// See [`Self::handle_pending_scroll_updates()`].
-    pub(super) fn add_pending_scroll_update(
+    pub(crate) fn add_pending_scroll_update(
         &mut self,
         external_scroll_id: ExternalScrollId,
         offset: LayoutVector2D,
@@ -421,7 +407,7 @@ impl AccessibilityTree {
         self.focused_node_id
     }
 
-    fn get_or_create_node(
+    pub(super) fn get_or_create_node(
         &mut self,
         dom_node: &ServoLayoutNode<'_>,
         update: &mut AccessibilityUpdate,
@@ -593,7 +579,7 @@ impl AccessibilityTree {
         *id
     }
 
-    fn existing_id_for_opaque(&self, opaque: OpaqueNode) -> Option<NodeId> {
+    pub(super) fn existing_id_for_opaque(&self, opaque: OpaqueNode) -> Option<NodeId> {
         self.opaque_node_to_id.get(&opaque).cloned()
     }
 
@@ -679,12 +665,12 @@ impl<'update> AccessibilityUpdate<'update> {
         }
     }
 
-    fn add(&mut self, node: &mut AccessibilityNode) {
+    pub(super) fn add(&mut self, node: &mut AccessibilityNode) {
         self.changed_nodes.insert(node.id());
         node.remove_dirty_state(DirtyState::Updated);
     }
 
-    fn set_tree_state_change(&mut self, node_id: NodeId, change: TreeChange) {
+    pub(super) fn set_tree_state_change(&mut self, node_id: NodeId, change: TreeChange) {
         let old_change = self.tree_changes.get(&node_id);
 
         assert!(
@@ -705,7 +691,7 @@ impl<'update> AccessibilityUpdate<'update> {
         self.tree_changes.insert(node_id, resolved_change);
     }
 
-    fn is_new(&mut self, node_id: &NodeId) -> bool {
+    pub(super) fn is_new(&mut self, node_id: &NodeId) -> bool {
         self.tree_changes.get(node_id) == Some(&TreeChange::New)
     }
 
@@ -783,17 +769,17 @@ impl<'update> AccessibilityUpdate<'update> {
         self.damage_map.insert(node_id, damage);
     }
 
-    fn insert_dom_node(&self, node_id: NodeId, dom_node: ServoLayoutNode<'update>) {
+    pub(super) fn insert_dom_node(&self, node_id: NodeId, dom_node: ServoLayoutNode<'update>) {
         self.dom_node_map.borrow_mut().insert(node_id, dom_node);
     }
 
-    fn take_damage(&mut self, node_id: &NodeId) -> AccessibilityDamage {
+    pub(super) fn take_damage(&mut self, node_id: &NodeId) -> AccessibilityDamage {
         self.damage_map
             .remove(node_id)
             .unwrap_or(AccessibilityDamage::empty())
     }
 
-    fn take_dom_node(&mut self, node_id: &NodeId) -> Option<ServoLayoutNode<'update>> {
+    pub(super) fn take_dom_node(&mut self, node_id: &NodeId) -> Option<ServoLayoutNode<'update>> {
         self.dom_node_map.borrow_mut().remove(node_id)
     }
 
