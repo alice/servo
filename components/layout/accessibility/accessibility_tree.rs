@@ -4,7 +4,6 @@
 
 use std::cell::RefCell;
 use std::fmt::Debug;
-use std::iter::repeat;
 use std::sync::atomic;
 use std::sync::atomic::AtomicU64;
 
@@ -245,7 +244,9 @@ impl AccessibilityTree {
             update,
         );
 
-        damage_root.borrow().update_ancestors(local_damage, update);
+        damage_root
+            .borrow()
+            .update_ancestors(local_damage, self, update);
     }
 
     /// Read all scroll offsets directly from the scroll tree, and use them to populate
@@ -624,17 +625,16 @@ impl AccessibilityTree {
 
             // assert_node_for_id() here double-checks that the node hasn't been incorrectly evicted
             // from the map while it's still retained as a child node.
-            let parent = Some(self.assert_node_for_id(&node.id()).downgrade());
-            let mut previous_sibling = None;
+            let weak_node = Some(self.assert_node_for_id(&node.id()).downgrade().clone());
+            let mut weak_previous_child = None;
             let children_peekable = node.children().peekable();
             for child_ref in children_peekable {
-                let child = child_ref.borrow();
                 let child_expectations = NodeExpectations {
-                    parent,
-                    previous_sibling,
+                    parent: weak_node.clone(),
+                    previous_sibling: weak_previous_child.clone(),
                     next_sibling: None,
                 };
-                previous_sibling = Some(child_ref.downgrade());
+                weak_previous_child = Some(child_ref.downgrade());
                 nodes.push((child_ref.clone(), child_expectations));
             }
         }
@@ -644,7 +644,7 @@ impl AccessibilityTree {
         assert_eq!(seen_node_ids, self.nodes.keys().copied().collect());
     }
 
-    fn print(&self) {
+    pub(crate) fn print(&self) {
         let Some(root_node) = self.root_node.clone() else {
             return;
         };

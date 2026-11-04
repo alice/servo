@@ -4,11 +4,9 @@
 
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::rc::Weak;
 use std::sync::LazyLock;
 
-use accesskit::Role::{ContentInfo, GenericContainer};
-use accesskit::{Affine, Node, NodeId, Role};
+use accesskit::{Affine, NodeId, Role};
 use app_units::Au;
 use bitflags::bitflags;
 use euclid::Rect;
@@ -195,7 +193,7 @@ impl AccessibilityNode {
             self.set_scroll_offset(scroll_offset, update);
         }
 
-        local_damage.insert(self.update_node_local(local_damage, update));
+        local_damage.insert(self.update_node_local(local_damage, tree, update));
 
         if self.dirty_state.updated() {
             update.add(self);
@@ -209,6 +207,7 @@ impl AccessibilityNode {
     pub(super) fn update_ancestors(
         &self,
         local_damage: LocalAccessibilityDamage,
+        tree: &AccessibilityTree,
         update: &mut AccessibilityUpdate,
     ) {
         if local_damage.is_empty() {
@@ -216,7 +215,7 @@ impl AccessibilityNode {
         }
         for node in self.ancestors() {
             let mut node = node.borrow_mut();
-            node.update_node_local(LocalAccessibilityDamage::SubtreeChanged, update);
+            node.update_node_local(LocalAccessibilityDamage::SubtreeChanged, tree, update);
             node.dirty_state -= DirtyState::DescendantHasDamage;
             if node.dirty_state.updated() {
                 update.add(&mut node);
@@ -319,7 +318,7 @@ impl AccessibilityNode {
         // may end up being "Moved" even though they haven't changed parents, and may even be in the
         // same position as previously.
         let weak_self = ref_self.downgrade();
-        let previous_sibling = self.child_nodes.last().map(|node_ref| node_ref);
+        let previous_sibling = self.child_nodes.last().cloned();
         for dom_child in remaining_dom_children {
             let (child_id, child_ref) = tree.get_or_create_node(&dom_child, update);
             // We need to ensure every AccessibilityNode which may be updated has a corresponding
@@ -332,9 +331,11 @@ impl AccessibilityNode {
 
             let mut child = child_ref.borrow_mut();
             child.parent_node = Some(weak_self.clone());
-            child.previous_sibling = previous_sibling.map(|node_ref| node_ref.downgrade());
+            child.previous_sibling = previous_sibling
+                .as_ref()
+                .map(|node_ref| node_ref.downgrade());
             child.next_sibling = None;
-            if let Some(previous_sibling) = previous_sibling {
+            if let Some(ref previous_sibling) = previous_sibling {
                 previous_sibling.borrow_mut().next_sibling = Some(child_ref.downgrade());
             }
 
@@ -449,6 +450,7 @@ impl AccessibilityNode {
     fn update_node_local(
         &mut self,
         local_damage: LocalAccessibilityDamage,
+        tree: &AccessibilityTree,
         update: &mut AccessibilityUpdate,
     ) -> LocalAccessibilityDamage {
         let mut new_damage = LocalAccessibilityDamage::empty();
@@ -458,7 +460,7 @@ impl AccessibilityNode {
         update.counters.nodes_updated_from_tree += 1;
 
         if local_damage.contains(LocalAccessibilityDamage::TextChanged) {
-            if self.is_irrelevant_whitespace(&mut new_damage) {
+            if self.is_irrelevant_whitespace(tree) {
                 new_damage.insert(self.set_hidden());
             } else {
                 new_damage.insert(self.clear_hidden());
@@ -478,7 +480,7 @@ impl AccessibilityNode {
         new_damage
     }
 
-    fn is_irrelevant_whitespace(&mut self, new_damage: &mut LocalAccessibilityDamage) -> bool {
+    fn is_irrelevant_whitespace(&mut self, tree: &AccessibilityTree) -> bool {
         // If this node is a text node containing only whitespace, we need to hide it unless
         // the whitespace is significant.
         // To an extremely rough approximation:
@@ -498,13 +500,14 @@ impl AccessibilityNode {
             return false;
         }
 
-        let Some(nearest_non_generic_ancestor) = self
-            .ancestors()
-            .find(|node| node.borrow().role() != GenericContainer)
-        else {
-            unreachable!("No non-generic ancestor found, including RootWebArea?");
-            return false;
-        };
+        dbg!(&self);
+
+        // let Some(_nearest_non_generic_ancestor) = self
+        //     .ancestors()
+        //     .find(|node| node.borrow().role() != GenericContainer)
+        // else {
+        //     unreachable!("No non-generic ancestor found, including RootWebArea?");
+        // };
 
         false
     }
