@@ -4,9 +4,11 @@
 
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::rc::Weak;
 use std::sync::LazyLock;
 
-use accesskit::{Affine, NodeId, Role};
+use accesskit::Role::{ContentInfo, GenericContainer};
+use accesskit::{Affine, Node, NodeId, Role};
 use app_units::Au;
 use bitflags::bitflags;
 use euclid::Rect;
@@ -91,6 +93,10 @@ pub(super) struct AccessibilityNode {
     parent_node: Option<WeakRefCell<AccessibilityNode>>,
     /// All this node's children.
     child_nodes: Vec<ArcRefCell<AccessibilityNode>>,
+    /// This node's previous sibling, if any.
+    previous_sibling: Option<WeakRefCell<AccessibilityNode>>,
+    /// This node's next sibling, if any.
+    next_sibling: Option<WeakRefCell<AccessibilityNode>>,
     /// The [`OpaqueNode`] for the DOM node which corresponds to this accessibility node, if any.
     /// An accessibility node may not correspond to a DOM node if it corresponds to a
     /// pseudo-element, or in a test.
@@ -113,6 +119,8 @@ impl AccessibilityNode {
             accesskit_node: accesskit::Node::new(role),
             parent_node: None,
             child_nodes: vec![],
+            previous_sibling: None,
+            next_sibling: None,
             opaque_node: None,
             scroll_offset: None,
             dirty_state: DirtyState::empty(),
@@ -311,12 +319,11 @@ impl AccessibilityNode {
         // may end up being "Moved" even though they haven't changed parents, and may even be in the
         // same position as previously.
         let weak_self = ref_self.downgrade();
+        let previous_sibling = self.child_nodes.last().map(|node_ref| node_ref);
         for dom_child in remaining_dom_children {
             let (child_id, child_ref) = tree.get_or_create_node(&dom_child, update);
-            // TODO(#47162): Since we need to update bounds for all nodes, we need to ensure every
-            // AccessibilityNode has a corresponding DOM node available to be retrieved from the
-            // AccessibilityUpdate. Once we no longer update bounds on all nodes, we won't need to
-            // add all nodes like this.
+            // We need to ensure every AccessibilityNode which may be updated has a corresponding
+            // DOM node available to be retrieved from the AccessibilityUpdate.
             update.insert_dom_node(child_id, dom_child);
 
             // Update self.child_nodes in place.
@@ -325,6 +332,11 @@ impl AccessibilityNode {
 
             let mut child = child_ref.borrow_mut();
             child.parent_node = Some(weak_self.clone());
+            child.previous_sibling = previous_sibling.map(|node_ref| node_ref.downgrade());
+            child.next_sibling = None;
+            if let Some(previous_sibling) = previous_sibling {
+                previous_sibling.borrow_mut().next_sibling = Some(child_ref.downgrade());
+            }
 
             if update.is_new(&child_id) {
                 self.dirty_state |= DirtyState::DescendantHasDamage;
@@ -445,6 +457,14 @@ impl AccessibilityNode {
         }
         update.counters.nodes_updated_from_tree += 1;
 
+        if local_damage.contains(LocalAccessibilityDamage::TextChanged) {
+            if self.is_irrelevant_whitespace(&mut new_damage) {
+                new_damage.insert(self.set_hidden());
+            } else {
+                new_damage.insert(self.clear_hidden());
+            }
+        }
+
         if local_damage.contains(LocalAccessibilityDamage::SubtreeChanged) ||
             local_damage.contains(LocalAccessibilityDamage::RoleChanged)
         {
@@ -456,6 +476,37 @@ impl AccessibilityNode {
         }
 
         new_damage
+    }
+
+    fn is_irrelevant_whitespace(&mut self, new_damage: &mut LocalAccessibilityDamage) -> bool {
+        // If this node is a text node containing only whitespace, we need to hide it unless
+        // the whitespace is significant.
+        // To an extremely rough approximation:
+        // - Otherwise, if this node has no text node relatives which aren't contained in a
+        //   non-generic node, ignore it;
+        // - Otherwise, if this node's closest preceding text node relative ends with
+        //   whitespace, ignore it;
+        // - Otherwise, if this node's closest subsequent text node relative begins with
+        //   whitespace, ignore it;
+        // - Otherwise, keep it.
+        let Some(value) = self.value() else {
+            return false;
+        };
+
+        // If this node contains non-whitespace characters, keep it.
+        if !value.trim().is_empty() {
+            return false;
+        }
+
+        let Some(nearest_non_generic_ancestor) = self
+            .ancestors()
+            .find(|node| node.borrow().role() != GenericContainer)
+        else {
+            unreachable!("No non-generic ancestor found, including RootWebArea?");
+            return false;
+        };
+
+        false
     }
 
     fn label_from_descendants(&self) -> Option<String> {
@@ -538,6 +589,16 @@ impl AccessibilityNode {
         &self,
     ) -> impl DoubleEndedIterator<Item = &ArcRefCell<AccessibilityNode>> {
         self.child_nodes.iter()
+    }
+
+    pub(super) fn previous_sibling(&self) -> Option<ArcRefCell<AccessibilityNode>> {
+        self.previous_sibling
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+    }
+
+    pub(super) fn next_sibling(&self) -> Option<ArcRefCell<AccessibilityNode>> {
+        self.next_sibling.as_ref().and_then(|weak| weak.upgrade())
     }
 
     #[cfg(test)]
@@ -702,18 +763,32 @@ impl AccessibilityNode {
         self.accesskit_node.clear_transform();
         self.dirty_state |= DirtyState::Updated;
     }
+}
 
-    pub(super) fn assert_integrity(&self, expected_parent: Option<WeakRefCell<AccessibilityNode>>) {
+pub(super) struct NodeExpectations {
+    pub(super) parent: Option<WeakRefCell<AccessibilityNode>>,
+    pub(super) previous_sibling: Option<WeakRefCell<AccessibilityNode>>,
+    pub(super) next_sibling: Option<WeakRefCell<AccessibilityNode>>,
+}
+
+pub(super) trait Integrity {
+    fn assert_integrity(&self, expected: NodeExpectations);
+}
+
+impl Integrity for AccessibilityNode {
+    fn assert_integrity(&self, expected: NodeExpectations) {
         debug_assert!(pref!(expensive_accessibility_test_assertions_enabled));
 
         if let Some(actual_parent) = &self.parent_node {
-            let expected = expected_parent.expect("Actual parent but no expected parent");
+            let expected = expected
+                .parent
+                .expect("Actual parent but no expected parent");
             let expected = expected.upgrade().expect("Expected parent was dropped");
             let actual = actual_parent.upgrade().expect("Actual parent was dropped");
             assert!(actual.ptr_eq(&expected));
         } else {
             assert!(
-                expected_parent.is_none(),
+                expected.parent.is_none(),
                 "Expected parent but no actual parent"
             );
         }

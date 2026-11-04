@@ -25,6 +25,7 @@ use webrender_api::units::LayoutVector2D;
 
 use super::accessibility_node::{AccessibilityNode, DirtyState};
 use crate::ArcRefCell;
+use crate::accessibility::accessibility_node::{Integrity, NodeExpectations};
 use crate::accessibility::{AccessibilityContext, AccessibilityDamageMap};
 
 #[derive(Debug, Default)]
@@ -599,11 +600,17 @@ impl AccessibilityTree {
             return;
         };
 
+        let root_expected = NodeExpectations {
+            parent: None,
+            previous_sibling: None,
+            next_sibling: None,
+        };
+
         // Traverse the tree from the given root.
-        // `nodes` is a Vec of pairs of nodes and their expected parents.
-        let mut nodes = vec![(root_node, None)];
+        // `nodes` is a Vec of pairs of nodes and their expected relations.
+        let mut nodes = vec![(root_node, root_expected)];
         let mut seen_node_ids = FxHashSet::default();
-        while let Some((node, expected_parent)) = nodes.pop() {
+        while let Some((node, expected)) = nodes.pop() {
             let node = node.borrow();
 
             // If this fails, then the tree is not a tree at all.
@@ -613,12 +620,23 @@ impl AccessibilityTree {
                 node.id()
             );
 
-            node.assert_integrity(expected_parent);
+            node.assert_integrity(expected);
 
             // assert_node_for_id() here double-checks that the node hasn't been incorrectly evicted
             // from the map while it's still retained as a child node.
-            let weak_node = Some(self.assert_node_for_id(&node.id()).downgrade());
-            nodes.extend(node.children().cloned().zip(repeat(weak_node)));
+            let parent = Some(self.assert_node_for_id(&node.id()).downgrade());
+            let mut previous_sibling = None;
+            let children_peekable = node.children().peekable();
+            for child_ref in children_peekable {
+                let child = child_ref.borrow();
+                let child_expectations = NodeExpectations {
+                    parent,
+                    previous_sibling,
+                    next_sibling: None,
+                };
+                previous_sibling = Some(child_ref.downgrade());
+                nodes.push((child_ref.clone(), child_expectations));
+            }
         }
 
         // If this fails, then the tree has orphaned nodes (a leak).
