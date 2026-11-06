@@ -16,6 +16,7 @@ use layout_api::{
 };
 use log::trace;
 use num_traits::ToPrimitive;
+use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use script::layout_dom::{ServoLayoutElement, ServoLayoutNode};
 use servo_base::print_tree::PrintTree;
@@ -49,6 +50,19 @@ fn scroll_offset_to_affine(layout_vector: LayoutVector2D) -> Affine {
 }
 
 bitflags! {
+    /// Flags which may be used in this or future updates to compute serialized properties for a
+    /// given AccessibilityNode.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Flags: u16 {
+        /// For a text node, whether we couldn't determine that it's _not_ irrelevant whitespace.
+        /// This occurs when a whitespace-only text node is preceded by a text node which ends with
+        /// a non-whitespace character, and we haven't yet encountered the following text node to
+        /// learn whether it begins with a non-whitespace character, making the whitespace relevant.
+        const MayBeRelevantWhitespace = 0b0001;
+    }
+}
+
+bitflags! {
     /// Flags tracking an [`AccessibilityNode`]'s dirty state during an update. All flags which are
     /// set during the update should be unset by the end of the update.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,6 +73,9 @@ bitflags! {
         const HasDamage = 0b0010;
         /// This node's data changed, but it hasn't yet been added to the [`AccessibilityUpdate`].
         const Updated = 0b0100;
+        /// This node was added in this update, and any associated local damage in its subtree has
+        /// yet to be resolved.
+        const New = 0b1000;
     }
 }
 
@@ -76,6 +93,14 @@ bitflags! {
         const TextChanged = 0b0100;
         /// This node's visibility changed.
         const VisibilityChanged = 0b1000;
+    }
+}
+
+bitflags! {
+    #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
+    pub(super) struct SubtreeState: u16 {
+        const New = 0b0001;
+        const Hidden = 0b0010;
     }
 }
 
@@ -102,6 +127,8 @@ pub(super) struct AccessibilityNode {
     /// This node's scroll offset, if it is a scroll container which has scrolled. This is used to
     /// translate this node's children.
     scroll_offset: Option<LayoutVector2D>,
+    /// Other data which may be used to calculate properties in this or future updates.
+    flags: Flags,
     /// Any dirty state for the current update.
     dirty_state: DirtyState,
 }
@@ -121,6 +148,7 @@ impl AccessibilityNode {
             next_sibling: None,
             opaque_node: None,
             scroll_offset: None,
+            flags: Flags::empty(),
             dirty_state: DirtyState::empty(),
         }
     }
@@ -140,7 +168,7 @@ impl AccessibilityNode {
         &mut self,
         ref_self: ArcRefCell<Self>,
         damage_from_parent: AccessibilityDamage,
-        hidden: bool,
+        subtree_state: SubtreeState,
         context: &AccessibilityContext,
         tree: &mut AccessibilityTree,
         update: &mut AccessibilityUpdate<'update>,
@@ -152,11 +180,13 @@ impl AccessibilityNode {
         let mut children_changed = false;
 
         if let Some(dom_node) = dom_node {
-            local_damage.insert(self.update_properties_and_children_from_dom_node(
+            local_damage |= self.update_properties_and_children_from_dom_node(
                 &ref_self, &dom_node, damage, tree, update,
-            ));
-            local_damage
-                .insert(self.update_node_from_layout(&dom_node, damage, hidden, context, update));
+            );
+
+            let hidden = subtree_state.intersects(SubtreeState::Hidden);
+            local_damage |=
+                self.update_node_from_layout(&dom_node, damage, hidden, context, update);
 
             if local_damage.contains(LocalAccessibilityDamage::SubtreeChanged) {
                 children_changed = true;
@@ -168,12 +198,16 @@ impl AccessibilityNode {
         let layout_damage = damage & AccessibilityDamage::Layout;
         if self.dirty_state.descendant_has_damage() || !layout_damage.is_empty() {
             for child_node in self.children() {
+                let mut child_subtree_state = subtree_state;
                 let child_node_ref = child_node.clone();
                 let mut child_node = child_node.borrow_mut();
+                if child_node.dirty_state.intersects(DirtyState::New) {
+                    child_subtree_state |= SubtreeState::New;
+                }
                 let child_local_damage = child_node.update_subtree(
                     child_node_ref,
                     layout_damage,
-                    hidden || self.is_hidden(),
+                    child_subtree_state,
                     context,
                     tree,
                     update,
@@ -193,7 +227,7 @@ impl AccessibilityNode {
             self.set_scroll_offset(scroll_offset, update);
         }
 
-        local_damage.insert(self.update_node_local(local_damage, tree, update));
+        local_damage.insert(self.update_node_local(local_damage, update));
 
         if self.dirty_state.updated() {
             update.add(self);
@@ -207,7 +241,6 @@ impl AccessibilityNode {
     pub(super) fn update_ancestors(
         &self,
         local_damage: LocalAccessibilityDamage,
-        tree: &AccessibilityTree,
         update: &mut AccessibilityUpdate,
     ) {
         if local_damage.is_empty() {
@@ -215,12 +248,19 @@ impl AccessibilityNode {
         }
         for node in self.ancestors() {
             let mut node = node.borrow_mut();
-            node.update_node_local(LocalAccessibilityDamage::SubtreeChanged, tree, update);
+            node.update_node_local(LocalAccessibilityDamage::SubtreeChanged, update);
             node.dirty_state -= DirtyState::DescendantHasDamage;
             if node.dirty_state.updated() {
                 update.add(&mut node);
             }
         }
+    }
+
+    pub(super) fn resolve_remaining_local_damage<'update>(
+        &mut self,
+        update: &mut AccessibilityUpdate,
+    ) {
+        self.dirty_state -= DirtyState::New;
     }
 
     pub(super) fn initialize_from_dom_node(&mut self, dom_node: &ServoLayoutNode) {
@@ -450,7 +490,6 @@ impl AccessibilityNode {
     fn update_node_local(
         &mut self,
         local_damage: LocalAccessibilityDamage,
-        tree: &AccessibilityTree,
         update: &mut AccessibilityUpdate,
     ) -> LocalAccessibilityDamage {
         let mut new_damage = LocalAccessibilityDamage::empty();
@@ -460,7 +499,7 @@ impl AccessibilityNode {
         update.counters.nodes_updated_from_tree += 1;
 
         if local_damage.contains(LocalAccessibilityDamage::TextChanged) {
-            if self.is_irrelevant_whitespace(tree) {
+            if self.is_irrelevant_whitespace(update) {
                 new_damage.insert(self.set_hidden());
             } else {
                 new_damage.insert(self.clear_hidden());
@@ -480,35 +519,72 @@ impl AccessibilityNode {
         new_damage
     }
 
-    fn is_irrelevant_whitespace(&mut self, tree: &AccessibilityTree) -> bool {
-        // If this node is a text node containing only whitespace, we need to hide it unless
-        // the whitespace is significant.
-        // To an extremely rough approximation:
-        // - Otherwise, if this node has no text node relatives which aren't contained in a
-        //   non-generic node, ignore it;
-        // - Otherwise, if this node's closest preceding text node relative ends with
-        //   whitespace, ignore it;
-        // - Otherwise, if this node's closest subsequent text node relative begins with
-        //   whitespace, ignore it;
-        // - Otherwise, keep it.
+    /// If this node is a text node containing only whitespace, we need to hide it unless the
+    /// whitespace is significant.
+    ///
+    /// The whitespace is significant if this node is between two other text nodes within the same
+    /// non-generic container node, and the two neighbouring text nodes have non-whitespace
+    /// characters adjacent to this node.
+    fn is_irrelevant_whitespace(&mut self, update: &mut AccessibilityUpdate) -> bool {
+        static STARTS_WITH_WHITESPACE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^\s+\S").unwrap());
+        static ENDS_WITH_WHITESPACE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"\S\s+$").unwrap());
+
         let Some(value) = self.value() else {
             return false;
         };
 
         // If this node contains non-whitespace characters, keep it.
         if !value.trim().is_empty() {
+            let Some(closest_previous_text) = update.closest_previous_text.as_mut() else {
+                return false;
+            };
+
+            // If this node's value starts with whitespace, the previous text node might be
+            // irrelevant whitespace.
+            if STARTS_WITH_WHITESPACE.is_match(value) {
+                let mut closest_previous_text = closest_previous_text.borrow_mut();
+                // FIXME: We need to set this state on the previous node even if it's unchanged?
+                // Maybe this is not a dirty state at all, but a persistent flag.
+                if closest_previous_text
+                    .flags
+                    .contains(Flags::MayBeRelevantWhitespace)
+                {
+                    // In theory, we should accumulate local damage from this potential change, but
+                    // the local damage will already be contributed to the nearest container by the
+                    // text change which caused this method to be called.
+                    closest_previous_text.set_hidden();
+                    closest_previous_text.flags -= Flags::MayBeRelevantWhitespace;
+                }
+            }
+
+            // FIXME: If the value changed and now this node no longer ends with whitespace, we may
+            // need to unhide the subsequent text node.
+            if ENDS_WITH_WHITESPACE.is_match(value) {}
+
             return false;
         }
 
-        dbg!(&self);
+        // If this node is not in between two other text nodes, ignore it.
+        let Some(closest_previous_text_node) = update.closest_previous_text.as_ref() else {
+            return true;
+        };
 
-        // let Some(_nearest_non_generic_ancestor) = self
-        //     .ancestors()
-        //     .find(|node| node.borrow().role() != GenericContainer)
-        // else {
-        //     unreachable!("No non-generic ancestor found, including RootWebArea?");
-        // };
+        let closest_previous_text = closest_previous_text_node.borrow_mut();
+        // FIXME: May need to unhide?
+        if closest_previous_text.is_hidden() {
+            // By the same logic as the previous node.
+            return true;
+        }
+        let previous_value = closest_previous_text
+            .value()
+            .expect("All text nodes should have values");
+        if ENDS_WITH_WHITESPACE.is_match(previous_value) {
+            return true;
+        }
 
+        self.flags |= Flags::MayBeRelevantWhitespace;
         false
     }
 

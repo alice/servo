@@ -82,7 +82,7 @@ pub struct AccessibilityTree {
 }
 
 /// Changes which have occurred during the current update, and data required to process the update.
-pub(super) struct AccessibilityUpdate<'update> {
+pub(crate) struct AccessibilityUpdate<'update> {
     /// Nodes whose internal data has changed within the current update.
     changed_nodes: FxHashSet<NodeId>,
     /// Sent with the initial [`accesskit::TreeUpdate`], and whenever the root node changes.
@@ -94,13 +94,22 @@ pub(super) struct AccessibilityUpdate<'update> {
     /// Whether the tree's focused node has changed in this update.
     focused_node_changed: bool,
     /// Counters to track how many nodes we've checked for changes or updated in this tree update.
-    pub(super) counters: UpdateCounters,
+    pub(crate) counters: UpdateCounters,
 
     /// Map of [`NodeId`] to the [`AccessibilityDamage`] which was passed in for that node.
     damage_map: FxHashMap<NodeId, AccessibilityDamage>,
     /// Map of [`NodeId`] to the corresponding [`ServoLayoutNode`]. This is populated for nodes
     /// which have damage, including nodes which are newly added to the accessibility tree.
     dom_node_map: RefCell<FxHashMap<NodeId, ServoLayoutNode<'update>>>,
+
+    /// Map of accessibility node to `LocalDamage` which couldn't be resolved during the inital
+    /// tree walk.
+    pub(crate) local_damage_map: FxHashMap<NodeId, AccessibilityDamage>,
+    /// The IDs of the ancestors of the current node which have a non-generic role,
+    /// in order from outermost to innermost.
+    pub(crate) containers: Vec<NodeId>,
+    /// The previous text node in tree order within the same container node.
+    pub(crate) closest_previous_text: Option<ArcRefCell<AccessibilityNode>>,
 }
 
 /// Tracks changes to a node's relation to the tree within an update.
@@ -244,9 +253,7 @@ impl AccessibilityTree {
             update,
         );
 
-        damage_root
-            .borrow()
-            .update_ancestors(local_damage, self, update);
+        damage_root.borrow().update_ancestors(local_damage, update);
     }
 
     /// Read all scroll offsets directly from the scroll tree, and use them to populate
@@ -644,7 +651,7 @@ impl AccessibilityTree {
         assert_eq!(seen_node_ids, self.nodes.keys().copied().collect());
     }
 
-    pub(crate) fn print(&self) {
+    fn print(&self) {
         let Some(root_node) = self.root_node.clone() else {
             return;
         };
@@ -679,6 +686,9 @@ impl<'update> AccessibilityUpdate<'update> {
             counters: UpdateCounters::default(),
             damage_map,
             dom_node_map: RefCell::new(dom_node_map),
+            local_damage_map: FxHashMap::default(),
+            containers: vec![],
+            closest_previous_text: None,
         }
     }
 
