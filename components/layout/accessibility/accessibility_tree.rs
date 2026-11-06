@@ -24,7 +24,9 @@ use webrender_api::units::LayoutVector2D;
 
 use super::accessibility_node::{AccessibilityNode, DirtyState};
 use crate::ArcRefCell;
-use crate::accessibility::accessibility_node::{Integrity, NodeExpectations};
+use crate::accessibility::accessibility_node::{
+    Integrity, LocalAccessibilityDamage, NodeExpectations, SubtreeState,
+};
 use crate::accessibility::{AccessibilityContext, AccessibilityDamageMap};
 
 #[derive(Debug, Default)]
@@ -82,7 +84,7 @@ pub struct AccessibilityTree {
 }
 
 /// Changes which have occurred during the current update, and data required to process the update.
-pub(crate) struct AccessibilityUpdate<'update> {
+pub(super) struct AccessibilityUpdate<'update> {
     /// Nodes whose internal data has changed within the current update.
     changed_nodes: FxHashSet<NodeId>,
     /// Sent with the initial [`accesskit::TreeUpdate`], and whenever the root node changes.
@@ -104,12 +106,12 @@ pub(crate) struct AccessibilityUpdate<'update> {
 
     /// Map of accessibility node to `LocalDamage` which couldn't be resolved during the inital
     /// tree walk.
-    pub(crate) local_damage_map: FxHashMap<NodeId, AccessibilityDamage>,
+    pub(super) local_damage_map: FxHashMap<NodeId, LocalAccessibilityDamage>,
     /// The IDs of the ancestors of the current node which have a non-generic role,
     /// in order from outermost to innermost.
-    pub(crate) containers: Vec<NodeId>,
+    pub(super) containers: Vec<NodeId>,
     /// The previous text node in tree order within the same container node.
-    pub(crate) closest_previous_text: Option<ArcRefCell<AccessibilityNode>>,
+    pub(super) closest_previous_text: Option<ArcRefCell<AccessibilityNode>>,
 }
 
 /// Tracks changes to a node's relation to the tree within an update.
@@ -243,17 +245,24 @@ impl AccessibilityTree {
             return;
         };
         let damage_root = self.assert_node_for_id(&damage_root_id);
-        let hidden = false;
         let local_damage = damage_root.borrow_mut().update_subtree(
             damage_root.clone(),
             AccessibilityDamage::empty(),
-            hidden,
+            SubtreeState::empty(),
             context,
             self,
             update,
         );
 
         damage_root.borrow().update_ancestors(local_damage, update);
+
+        for (id, damage) in update.take_local_damage() {
+            let Some(node) = self.node_for_id(id) else {
+                continue;
+            };
+            node.borrow_mut()
+                .resolve_remaining_local_damage(damage, update);
+        }
     }
 
     /// Read all scroll offsets directly from the scroll tree, and use them to populate
@@ -427,7 +436,7 @@ impl AccessibilityTree {
             let mut node = node_ref.borrow_mut();
             node.initialize_from_dom_node(dom_node);
             update.insert_damage(id, AccessibilityDamage::Rebuild);
-            node.add_dirty_state(DirtyState::HasDamage);
+            node.add_dirty_state(DirtyState::HasDamage | DirtyState::New);
         }
 
         (id, node_ref)
@@ -609,7 +618,7 @@ impl AccessibilityTree {
         };
 
         let root_expected = NodeExpectations {
-            parent: None,
+            parent_node: None,
             previous_sibling: None,
             next_sibling: None,
         };
@@ -637,11 +646,17 @@ impl AccessibilityTree {
             let children_peekable = node.children().peekable();
             for child_ref in children_peekable {
                 let child_expectations = NodeExpectations {
-                    parent: weak_node.clone(),
+                    parent_node: weak_node.clone(),
                     previous_sibling: weak_previous_child.clone(),
                     next_sibling: None,
                 };
-                weak_previous_child = Some(child_ref.downgrade());
+                let weak_child = child_ref.downgrade();
+                if weak_previous_child.is_some() &&
+                    let Some((_, previous_expectations)) = nodes.last_mut()
+                {
+                    previous_expectations.next_sibling = Some(weak_child.clone());
+                }
+                weak_previous_child = Some(weak_child);
                 nodes.push((child_ref.clone(), child_expectations));
             }
         }
@@ -808,6 +823,10 @@ impl<'update> AccessibilityUpdate<'update> {
 
     pub(super) fn take_dom_node(&mut self, node_id: &NodeId) -> Option<ServoLayoutNode<'update>> {
         self.dom_node_map.borrow_mut().remove(node_id)
+    }
+
+    fn take_local_damage(&mut self) -> FxHashMap<NodeId, LocalAccessibilityDamage> {
+        std::mem::take(&mut self.local_damage_map)
     }
 
     #[expect(unsafe_code)]

@@ -1393,6 +1393,48 @@ fn test_accessibility_focus_moves() {
     );
 }
 
+#[test]
+fn test_accessibility_only_irrelevant_whitespace_hidden() {
+    let url = "data:text/html,<!DOCTYPE html>
+               <a id='link' href='%23main'>Skip to main content</a>
+               <nav>
+                   <a id='news' href='/news'>News</a>
+                   <a id='services' href='/services'>Services </a>
+                   <a id='contact' href='/contact'>Contact</a>
+               </nav>";
+    let (servo_test, delegate, webview, mut tree) = build_webview_and_tree(url);
+
+    let root = assert_tree_structure_and_get_root_web_area(&tree);
+    let root_children: Vec<accesskit_consumer::Node> = root.children().collect();
+    // <a>, space, <nav>
+    assert_eq!(root_children.len(), 3);
+    let whitespace = root_children[1];
+    assert_eq!(whitespace.role(), Role::TextRun);
+    assert!(whitespace.is_hidden());
+
+    let nav = root_children[2];
+    let nav_children: Vec<accesskit_consumer::Node> = nav.children().collect();
+    // space, <a id='news'>, space, <a id='services'>, space, <a id='contact'>, space
+    assert_eq!(nav_children.len(), 7);
+    let all_whitespace = find_all_matching_nodes(nav, |node| {
+        node.role() == Role::TextRun &&
+            node.value()
+                .expect("Text nodes should always have a value")
+                .trim()
+                .is_empty()
+    });
+    // First whitespace is irrelevant because it precedes any actual text in the container.
+    assert!(all_whitespace[0].is_hidden());
+    // Second whitespace is relevant because it comes between a text run which doesn't end with a
+    // space ("News") and a text run which doesn't begin with a space ("Services ").
+    assert!(!all_whitespace[1].is_hidden());
+    // Third whitespace is irrelevant because it comes after a text run which ends with a space
+    // ("Services ").
+    assert!(all_whitespace[2].is_hidden());
+    // Fourth whitespace is irrelevant because after the last text run in the container.
+    assert!(all_whitespace[3].is_hidden());
+}
+
 // ************************************************************************************************
 // If you're adding a new test here, consider adding a matching test in
 // tests/wpt/mozilla/tests/accessibility-tree/
