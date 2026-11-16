@@ -418,8 +418,8 @@ impl AccessibilityTree {
             let mut node = node_ref.borrow_mut();
             node.initialize_from_dom_node(dom_node);
             update.insert_damage(id, AccessibilityDamage::all());
-            node.add_dirty_state(DirtyState::HasDamage | DirtyState::New);
-        }
+            node.add_dirty_state(DirtyState::HasDamage);
+	}
 
         (id, node_ref)
     }
@@ -690,7 +690,7 @@ impl<'update> AccessibilityUpdate<'update> {
         self.tree_changes.insert(node_id, resolved_change);
     }
 
-    pub(super) fn is_new(&mut self, node_id: &NodeId) -> bool {
+    pub(super) fn is_new(&self, node_id: &NodeId) -> bool {
         self.tree_changes.get(node_id) == Some(&TreeChange::New)
     }
 

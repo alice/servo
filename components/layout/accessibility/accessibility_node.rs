@@ -115,7 +115,7 @@ impl AccessibilityNode {
     ) -> LocalAccessibilityDamage {
         let mut local_damage = LocalAccessibilityDamage::empty();
 
-        let mut traversal = TraversalState::new(Some(parent_traversal), self);
+        let mut traversal = TraversalState::new(Some(parent_traversal), self, update);
 
         let dom_node = update.take_dom_node(&self.id);
         let damage = update.take_damage(&self.id) | damage_from_parent;
@@ -140,7 +140,6 @@ impl AccessibilityNode {
             }
 
             self.dirty_state -= DirtyState::HasDamage;
-            self.dirty_state -= DirtyState::New;
         }
 
         let layout_damage = damage & AccessibilityDamage::Layout;
@@ -1032,11 +1031,15 @@ pub(super) struct TraversalState {
 }
 
 impl TraversalState {
-    fn new(parent: Option<&mut TraversalState>, node: &AccessibilityNode) -> Self {
+    fn new(
+        parent: Option<&mut TraversalState>,
+        node: &AccessibilityNode,
+        update: &AccessibilityUpdate,
+    ) -> Self {
         let mut subtree_state = parent
             .as_ref()
             .map_or(SubtreeState::empty(), |parent| parent.subtree_state);
-        if node.dirty_state.is_new() {
+        if update.is_new(&node.id()) {
             subtree_state.insert(SubtreeState::New);
         }
 
@@ -1078,21 +1081,16 @@ bitflags! {
     /// set during the update should be unset by the end of the update.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub(super) struct DirtyState : u16 {
-        const New = 1 << 0;
         /// At least one descendant of this node has unresolved damage from the DOM tree.
-        const DescendantHasDamage = 1 << 1;
+        const DescendantHasDamage = 1 << 0;
         /// This node has unresolved damage from the DOM tree.
-        const HasDamage = 1 << 2;
+        const HasDamage = 1 << 1;
         /// This node's data changed, but it hasn't yet been added to the [`AccessibilityUpdate`].
-        const Updated = 1 << 3;
+        const Updated = 1 << 2;
     }
 }
 
 impl DirtyState {
-    pub(super) fn is_new(&self) -> bool {
-        self.contains(DirtyState::New)
-    }
-
     pub(super) fn updated(&self) -> bool {
         self.contains(DirtyState::Updated)
     }
