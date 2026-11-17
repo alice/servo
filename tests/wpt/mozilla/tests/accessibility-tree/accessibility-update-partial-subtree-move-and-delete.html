@@ -46,7 +46,7 @@
       // its text, plus the two whitespace-only text nodes that were direct children of div1: one
       // between div1's start tag and div2 (div2 itself moved out, but not its whitespace
       // siblings), and one between div2 and div1's end tag.
-      assert_equals(update.nodesUpdatedBounds, 10, "nodesUpdatedBounds");
+      assert_equals(update.nodesUpdatedBounds, 9, "nodesUpdatedBounds");
 
       // Changed nodes:
       // - <section>, children changed (and it shrank, changing its bounds)

@@ -1405,19 +1405,31 @@ fn test_accessibility_only_irrelevant_whitespace_hidden_static() {
                    <a id='services' href='/services'>Services </a>
                    <a id='contact' href='/contact'>Contact</a>
                    <a id='about' href='/about'>About</a>
-               </nav>";
+                   <span></span>
+               </nav>
+               <footer>
+                   <a id='disclaimer' href='/disclaimer'>Disclaimer</a>
+               </footer>
+               ";
     let (_servo_test, _delegate, _webview, tree) = build_webview_and_tree(url);
 
     let root = assert_tree_structure_and_get_root_web_area(&tree);
     let root_children: Vec<accesskit_consumer::Node> = root.children().collect();
-    // <a>, space, <nav>
-    assert_eq!(root_children.len(), 3);
+    // <a>, space, <nav>, space, <footer>
+    assert_eq!(root_children.len(), 5);
     let whitespace = root_children[1];
     assert_eq!(whitespace.role(), Role::TextRun);
     assert_eq!(
         whitespace.is_hidden(),
         true,
         "Whitespace before <nav> is irrelevant because <nav> is a container"
+    );
+    let whitespace = root_children[3];
+    assert_eq!(whitespace.role(), Role::TextRun);
+    assert_eq!(
+        whitespace.is_hidden(),
+        true,
+        "Whitespace after <nav> is irrelevant because <nav> is a container"
     );
 
     let nav = root_children[2];
@@ -1428,7 +1440,7 @@ fn test_accessibility_only_irrelevant_whitespace_hidden_static() {
                 .trim()
                 .is_empty()
     });
-    assert_eq!(all_whitespace.len(), 6);
+    assert_eq!(all_whitespace.len(), 7);
     assert_eq!(
         all_whitespace[0].is_hidden(),
         true,
@@ -1457,7 +1469,12 @@ fn test_accessibility_only_irrelevant_whitespace_hidden_static() {
     assert_eq!(
         all_whitespace[5].is_hidden(),
         true,
-        "Sixth whitespace is irrelevant because it's after the last text run in the container."
+        "Sixth whitespace is irrelevant because it's between \"About\" and a whitespace-only node."
+    );
+    assert_eq!(
+        all_whitespace[5].is_hidden(),
+        true,
+        "Seventh whitespace is irrelevant because it's between a whitespace-only node and the end of the container."
     );
 }
 

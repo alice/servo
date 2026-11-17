@@ -49,7 +49,6 @@ fn scroll_offset_to_affine(layout_vector: LayoutVector2D) -> Affine {
     ))
 }
 
-#[derive(Clone)]
 pub(super) struct AccessibilityNode {
     /// The unique ID for the node. This is used both as a key in [`AccessibilityTree`]'s cache of
     /// nodes, and as an identifier in [`accesskit`] datastructures: [`accesskit::Node`]s,
@@ -115,9 +114,11 @@ impl AccessibilityNode {
     ) -> LocalAccessibilityDamage {
         let mut local_damage = LocalAccessibilityDamage::empty();
 
-        let mut traversal = TraversalState::new(Some(parent_traversal), self, update);
-
         let dom_node = update.take_dom_node(&self.id);
+        if let Some(dom_node) = dom_node {
+            local_damage.insert(self.set_role(role_from_dom_node(&dom_node)));
+        }
+        let mut traversal = TraversalState::new(Some(parent_traversal), self, update);
         let damage = update.take_damage(&self.id) | damage_from_parent;
         let mut children_changed = false;
 
@@ -537,6 +538,12 @@ impl AccessibilityNode {
 
         if closest_previous_text.is_hidden() {
             // By the same logic as the previous node.
+            if closest_previous_text
+                .flags
+                .contains(Flags::MayBeIrrelevantWhitespace)
+            {
+                self.flags |= Flags::MayBeIrrelevantWhitespace;
+            }
             return true;
         }
         let previous_value = closest_previous_text
@@ -997,7 +1004,7 @@ bitflags! {
         /// a non-whitespace character, and we haven't yet encountered the following text node to
         /// learn whether it begins with a non-whitespace character, making the whitespace relevant,
         /// or a whitespace character, making the whitespace irrelevant.
-        const MayBeIrrelevantWhitespace = 0b0001;
+        const MayBeIrrelevantWhitespace = 1 << 0;
     }
 }
 
@@ -1068,10 +1075,11 @@ impl TraversalState {
     }
 
     fn consume(&mut self, mut child: Self) {
-        if !child.new_whitespace_container {
-            self.closest_previous_text = std::mem::take(&mut child.closest_previous_text);
-        } else {
+        if child.new_whitespace_container {
+            // Ensure we clear closest_previous_text when leaving a whitespace container.
             self.closest_previous_text = None;
+        } else {
+            self.closest_previous_text = std::mem::take(&mut child.closest_previous_text);
         }
     }
 }
