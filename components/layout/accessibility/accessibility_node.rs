@@ -212,18 +212,15 @@ impl AccessibilityNode {
         update: &mut AccessibilityUpdate,
     ) -> FxHashSet<NodeId> {
         let mut changed_nodes = FxHashSet::default();
-        // TODO:
-        // - return changed node IDs
-        // - call mark_nodes_and_ancestors_dirty with dirty nodes
-        // - return damage root
-        // - write new function resolve_local_damage_in_subtree()
-        // - calling function calls resolve_local_damage_in_subtree()
         if damage.intersects(LocalAccessibilityDamage::TextChanged) {
             changed_nodes.extend(self.resolve_text_change(update));
         }
         if damage.intersects(LocalAccessibilityDamage::New) {
             changed_nodes.extend(self.resolve_added_node(update));
         }
+        // if damage.intersects(LocalAccessibilityDamage::SubtreeChanged) {
+        //     changed_nodes.extend(self.resolve_subtree_changed(update));
+        // }
         changed_nodes
     }
 
@@ -352,7 +349,7 @@ impl AccessibilityNode {
 
             if update.is_new(&child_id) {
                 self.dirty_state |= DirtyState::DescendantHasDamage;
-                if !traversal.subtree_state.contains(SubtreeState::New) {
+                if !traversal.in_new_subtree() {
                     update.add_unresolved_local_damage(child_id, LocalAccessibilityDamage::New);
                 }
             } else {
@@ -363,6 +360,9 @@ impl AccessibilityNode {
                 .propagate_descendant_has_damage(child.dirty_state);
         }
 
+        if !traversal.in_new_subtree() {
+            update.add_unresolved_local_damage(self.id(), LocalAccessibilityDamage::SubtreeChanged);
+        }
         // We can't update the AccessKit node's `children` in place, so we build up the full list
         // and then set it here.
         self.accesskit_node.set_children(new_child_ids);
@@ -387,7 +387,7 @@ impl AccessibilityNode {
             // FIXME: this should take into account editing selection units (grapheme clusters?)
             local_damage.insert(self.set_value(&text_content));
 
-            if traversal.subtree_state.contains(SubtreeState::New) {
+            if traversal.in_new_subtree() {
                 local_damage
                     .insert(self.maybe_hide_irrelevant_whitepace(ref_self, traversal, update));
             } else {
@@ -417,7 +417,7 @@ impl AccessibilityNode {
         update: &mut AccessibilityUpdate<'_>,
     ) -> LocalAccessibilityDamage {
         let mut local_damage = LocalAccessibilityDamage::empty();
-        if !traversal.subtree_state.intersects(SubtreeState::New) {
+        if !traversal.in_new_subtree() {
             return local_damage;
         }
         let closest_previous_text = std::mem::take(&mut traversal.closest_previous_text);
@@ -438,7 +438,10 @@ impl AccessibilityNode {
             // since the entire subtree is new and this change by definition shouldn't
             // change the computed text of any ancestor nodes (since only _irrelevant_
             // whitespace is hidden), we can ignore it here.
-            let _ = self.maybe_unhide_previous_whitespace_only_node(closest_previous_text, update);
+            let _ = self.maybe_unhide_previous_whitespace_only_node(
+                closest_previous_text.borrow_mut().deref_mut(),
+                update,
+            );
         }
         traversal.closest_previous_text = Some(ref_self.clone());
 
@@ -602,7 +605,7 @@ impl AccessibilityNode {
     /// whitespace-only node, and return any [`LocalAccessibilityDamage`] resulting from the change.
     fn maybe_unhide_previous_whitespace_only_node(
         &self,
-        closest_previous_text: ArcRefCell<AccessibilityNode>,
+        closest_previous_text: &mut AccessibilityNode,
         update: &mut AccessibilityUpdate,
     ) -> LocalAccessibilityDamage {
         static STARTS_WITH_WHITESPACE: LazyLock<Regex> =
@@ -616,7 +619,6 @@ impl AccessibilityNode {
             return LocalAccessibilityDamage::empty();
         }
 
-        let mut closest_previous_text = closest_previous_text.borrow_mut();
         if !closest_previous_text
             .flags
             .contains(Flags::MayBeIrrelevantWhitespace)
@@ -625,7 +627,7 @@ impl AccessibilityNode {
         }
 
         let damage = closest_previous_text.clear_hidden();
-        update.add(&mut closest_previous_text);
+        update.add(closest_previous_text);
         closest_previous_text.flags -= Flags::MayBeIrrelevantWhitespace;
         damage
     }
@@ -659,8 +661,10 @@ impl AccessibilityNode {
         }
 
         if let Some(closest_previous_text) = closest_previous_text {
-            let damage = self
-                .maybe_unhide_previous_whitespace_only_node(closest_previous_text.clone(), update);
+            let damage = self.maybe_unhide_previous_whitespace_only_node(
+                closest_previous_text.borrow_mut().deref_mut(),
+                update,
+            );
             if !damage.is_empty() {
                 changed_nodes.insert(closest_previous_text.borrow().id());
                 update.add(closest_previous_text.borrow_mut().deref_mut());
@@ -689,7 +693,7 @@ impl AccessibilityNode {
             .find(|node| CONTAINER_ROLES.contains(&node.borrow().role()))
             .map(|container| container.borrow().id());
         if let Some(first_text_descendant) = self
-            .after(stay_within)
+            .within()
             .find(|node| node.borrow().role() == Role::TextRun) &&
             let Some(closest_previous_text) = self
                 .before(stay_within)
@@ -702,33 +706,97 @@ impl AccessibilityNode {
                 update.add(&mut first_text_descendant);
                 changed_nodes.insert(first_text_descendant.id());
             }
-            let damage = first_text_descendant
-                .maybe_unhide_previous_whitespace_only_node(closest_previous_text.clone(), update);
+            let damage = first_text_descendant.maybe_unhide_previous_whitespace_only_node(
+                closest_previous_text.borrow_mut().deref_mut(),
+                update,
+            );
             if !damage.is_empty() {
                 changed_nodes.insert(closest_previous_text.borrow().id());
             }
         }
 
+        let closest_next_text = self
+            .after(stay_within)
+            .find(|node| node.borrow().role() == Role::TextRun);
         if let Some(last_text_descendant) = self
-            .within()
-            .find(|node| node.borrow().role() == Role::TextRun) &&
-            let Some(closest_next_text) = self
-                .after(stay_within)
-                .find(|node| node.borrow().role() == Role::TextRun)
+            .within_reverse()
+            .find(|node| node.borrow().role() == Role::TextRun)
         {
+            if let Some(closest_next_text) = closest_next_text {
+                let mut closest_next_text = closest_next_text.borrow_mut();
+                let damage = closest_next_text
+                    .hide_if_irrelevant_whitespace(Some(last_text_descendant.borrow().deref()));
+                if !damage.is_empty() {
+                    update.add(&mut closest_next_text);
+                    changed_nodes.insert(closest_next_text.id());
+                }
+
+                let damage = closest_next_text.maybe_unhide_previous_whitespace_only_node(
+                    last_text_descendant.borrow_mut().deref_mut(),
+                    update,
+                );
+                if !damage.is_empty() {
+                    changed_nodes.insert(last_text_descendant.borrow().id());
+                }
+            }
+        } else if let Some(closest_next_text) = closest_next_text {
             let mut closest_next_text = closest_next_text.borrow_mut();
-            let damage = closest_next_text
-                .hide_if_irrelevant_whitespace(Some(last_text_descendant.borrow().deref()));
+            let damage = closest_next_text.hide_if_irrelevant_whitespace(Some(self));
             if !damage.is_empty() {
                 update.add(&mut closest_next_text);
                 changed_nodes.insert(closest_next_text.id());
             }
 
-            let damage = closest_next_text
-                .maybe_unhide_previous_whitespace_only_node(last_text_descendant.clone(), update);
+            let damage = closest_next_text.maybe_unhide_previous_whitespace_only_node(self, update);
             if !damage.is_empty() {
-                changed_nodes.insert(last_text_descendant.borrow().id());
+                changed_nodes.insert(self.id());
             }
+        }
+
+        changed_nodes
+    }
+
+    #[expect(unused)]
+    fn resolve_subtree_changed(&mut self, update: &mut AccessibilityUpdate) -> FxHashSet<NodeId> {
+        // Handle first, last, preceding and following text nodes
+        let mut changed_nodes = self.resolve_added_node(update);
+
+        let stay_within = self
+            .ancestors()
+            .find(|node| CONTAINER_ROLES.contains(&node.borrow().role()))
+            .map(|container| container.borrow().id());
+
+        let mut closest_previous_text = self
+            .before(stay_within)
+            .find(|node| node.borrow().role() == Role::TextRun);
+        for text_node_ref in self
+            .within()
+            .filter(|node| node.borrow().role() == Role::TextRun)
+        {
+            let mut text_node = text_node_ref.borrow_mut();
+
+            if let Some(closest_previous_text) = closest_previous_text.clone() {
+                let damage = text_node
+                    .hide_if_irrelevant_whitespace(Some(closest_previous_text.borrow().deref()));
+                if !damage.is_empty() {
+                    update.add(&mut text_node);
+                    changed_nodes.insert(text_node.id());
+                }
+                let damage = text_node.maybe_unhide_previous_whitespace_only_node(
+                    closest_previous_text.borrow_mut().deref_mut(),
+                    update,
+                );
+                if !damage.is_empty() {
+                    changed_nodes.insert(closest_previous_text.borrow().id());
+                }
+            } else {
+                let damage = text_node.hide_if_irrelevant_whitespace(None);
+                if !damage.is_empty() {
+                    update.add(&mut text_node);
+                    changed_nodes.insert(text_node.id());
+                }
+            };
+            closest_previous_text = Some(text_node_ref.clone());
         }
 
         changed_nodes
@@ -874,11 +942,15 @@ impl AccessibilityNode {
         &self,
         stay_within: Option<NodeId>,
     ) -> impl Iterator<Item = ArcRefCell<AccessibilityNode>> {
-        AccessibilityNodeTreeOrderIterator::new(self, stay_within, false, TreeOrder::Backwards)
+        AccessibilityNodeTreeOrderIterator::new(self, stay_within, true, TreeOrder::Backwards)
     }
 
     pub(super) fn within(&self) -> impl Iterator<Item = ArcRefCell<AccessibilityNode>> {
         AccessibilityNodeTreeOrderIterator::new(self, Some(self.id()), false, TreeOrder::Forwards)
+    }
+
+    pub(super) fn within_reverse(&self) -> impl Iterator<Item = ArcRefCell<AccessibilityNode>> {
+        AccessibilityNodeTreeOrderIterator::new(self, Some(self.id()), false, TreeOrder::Backwards)
     }
 
     pub(super) fn child_ids(&self) -> &[NodeId] {
@@ -1118,6 +1190,17 @@ impl Debug for AccessibilityNode {
             write!(f, "[hidden] ")?;
         }
         write!(f, "{:?}: {:?}", self.id, self.role())?;
+        if let Some(value) = self.value() {
+            let mut truncated = value.to_string();
+            truncated.truncate(20);
+            let ellipsis = if truncated.len() < value.len() {
+                "…"
+            } else {
+                ""
+            };
+            let truncated = truncated.replace("\n", "↵");
+            write!(f, " \"{}{}\"", truncated, ellipsis)?;
+        }
         if let Some(html_tag) = self.html_tag() {
             write!(f, " (html_tag: {html_tag:?})")?;
         }
@@ -1205,6 +1288,7 @@ enum TreeOrder {
 struct AccessibilityNodeTreeOrderIterator {
     next_value: Option<ArcRefCell<AccessibilityNode>>,
     stay_within: Option<NodeId>,
+    skip_children: bool,
     order: TreeOrder,
 }
 
@@ -1212,13 +1296,15 @@ impl AccessibilityNodeTreeOrderIterator {
     fn new(
         start_node: &AccessibilityNode,
         stay_within: Option<NodeId>,
-        skip_children: bool,
+        mut skip_children: bool,
         order: TreeOrder,
     ) -> Self {
-        let next_value = Self::compute_next_value(start_node, &stay_within, skip_children, order);
+        let next_value =
+            Self::compute_next_value(start_node, &stay_within, &mut skip_children, order);
         AccessibilityNodeTreeOrderIterator {
             next_value,
             stay_within,
+            skip_children,
             order,
         }
     }
@@ -1226,15 +1312,16 @@ impl AccessibilityNodeTreeOrderIterator {
     fn compute_next_value(
         node: &AccessibilityNode,
         stay_within: &Option<NodeId>,
-        skip_children: bool,
+        skip_children: &mut bool,
         order: TreeOrder,
     ) -> Option<ArcRefCell<AccessibilityNode>> {
         match order {
             TreeOrder::Forwards => {
-                if !skip_children && let Some(first_child) = node.children().next() {
+                if !*skip_children && let Some(first_child) = node.children().next() {
                     return Some(first_child.clone());
                 }
 
+                *skip_children = false;
                 if stay_within == &Some(node.id()) {
                     return None;
                 }
@@ -1256,12 +1343,24 @@ impl AccessibilityNodeTreeOrderIterator {
                 None
             },
             TreeOrder::Backwards => {
-                if let Some(prev_sibling) = node.previous_sibling() {
-                    let mut child_ref = prev_sibling;
-                    while let Some(last_child) = child_ref.clone().borrow().children().last() {
-                        child_ref = last_child.clone();
+                let next_ref = if !*skip_children && let Some(last_child) = node.children().last() {
+                    Some(last_child.clone())
+                } else {
+                    if stay_within == &Some(node.id()) {
+                        return None;
                     }
-                    return Some(child_ref);
+                    node.previous_sibling()
+                };
+                if let Some(mut next_ref) = next_ref {
+                    *skip_children = false;
+                    while let Some(last_child) = next_ref.clone().borrow().children().last() {
+                        next_ref = last_child.clone();
+                    }
+                    return Some(next_ref);
+                }
+
+                if stay_within == &Some(node.id()) {
+                    return None;
                 }
 
                 let parent = node.parent()?;
@@ -1270,6 +1369,7 @@ impl AccessibilityNodeTreeOrderIterator {
                     return None;
                 }
 
+                *skip_children = true;
                 Some(parent)
             },
         }
@@ -1282,7 +1382,12 @@ impl Iterator for AccessibilityNodeTreeOrderIterator {
     fn next(&mut self) -> Option<Self::Item> {
         let current_value = self.next_value.take();
         self.next_value = current_value.as_ref().and_then(|node| {
-            Self::compute_next_value(&node.borrow(), &self.stay_within, false, self.order)
+            Self::compute_next_value(
+                &node.borrow(),
+                &self.stay_within,
+                &mut self.skip_children,
+                self.order,
+            )
         });
         current_value
     }
@@ -1379,6 +1484,10 @@ impl TraversalState {
             new_whitespace_container,
             closest_previous_text,
         }
+    }
+
+    fn in_new_subtree(&mut self) -> bool {
+        self.subtree_state.intersects(SubtreeState::New)
     }
 
     fn copy_is_hidden(&mut self, node: &AccessibilityNode) {

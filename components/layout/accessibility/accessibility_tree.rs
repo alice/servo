@@ -977,6 +977,7 @@ fn test_accessibility_tree_traversal() {
     node_7
         .borrow_mut()
         .set_children_for_testing(node_7.clone(), vec![node_8.clone(), node_9.clone()]);
+    tree.print();
 
     for node in tree.nodes.values() {
         let node = node.borrow();
@@ -1010,7 +1011,7 @@ fn test_accessibility_tree_traversal() {
         let mut first_id_after = None;
         for node in node.after(None) {
             let node = node.borrow();
-            assert!(node.id().0 == previous_id + 1);
+            assert!(node.id().0 == previous_id + 1, "after {}", node_id);
             previous_id = node.id().0;
             visited_nodes += 1;
             if first_id_after.is_none() {
@@ -1027,7 +1028,7 @@ fn test_accessibility_tree_traversal() {
         let mut previous_id = node_id;
         for node in node.before(None) {
             let node = node.borrow();
-            assert!(node.id().0 == previous_id - 1);
+            assert!(node.id().0 == previous_id - 1, "before {}", node_id);
             previous_id = node.id().0;
             visited_nodes += 1;
         }
@@ -1038,10 +1039,24 @@ fn test_accessibility_tree_traversal() {
         let expected_within = first_id_after.unwrap_or(10) - node_id - 1;
         for node in node.within() {
             let node = node.borrow();
-            assert!(node.id().0 == previous_id + 1);
+            assert!(node.id().0 == previous_id + 1, "within {}", node_id);
             previous_id = node.id().0;
             visited_nodes += 1;
         }
         assert_eq!(visited_nodes, expected_within, "within {}", node_id);
+
+        let mut previous_id = node
+            .after(None)
+            .next()
+            .map(|node| node.borrow().id().0)
+            .unwrap_or(10);
+        let mut visited_nodes = 0;
+        for node in node.within_reverse() {
+            let node = node.borrow();
+            assert!(node.id().0 == previous_id - 1, "within_reverse {}", node_id);
+            previous_id = node.id().0;
+            visited_nodes += 1;
+        }
+        assert_eq!(visited_nodes, expected_within, "within_reverse {}", node_id);
     }
 }
